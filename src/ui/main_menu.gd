@@ -62,17 +62,17 @@ func _build() -> void:
     # ---- left column: title + modes
     var left := VBoxContainer.new()
     left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    left.add_theme_constant_override("separation", 10)
+    left.add_theme_constant_override("separation", 7)
     root.add_child(left)
 
     var title := Label.new()
     title.text = "TOYVOLTS"
-    title.add_theme_font_size_override("font_size", 74)
+    title.add_theme_font_size_override("font_size", 62)
     title.add_theme_color_override("font_color", ACCENT)
     left.add_child(title)
     var sub := Label.new()
     sub.text = "seven weapons, one toy box"
-    sub.add_theme_font_size_override("font_size", 20)
+    sub.add_theme_font_size_override("font_size", 17)
     sub.modulate = Color(1, 1, 1, 0.7)
     left.add_child(sub)
     left.add_child(_spacer(6))
@@ -86,8 +86,8 @@ func _build() -> void:
         var b := Button.new()
         b.text = m[1]
         b.toggle_mode = true
-        b.custom_minimum_size = Vector2(330, 38)
-        b.add_theme_font_size_override("font_size", 19)
+        b.custom_minimum_size = Vector2(330, 33)
+        b.add_theme_font_size_override("font_size", 18)
         b.pressed.connect(func() -> void:
             Sfx.play_ui("ui_click")
             _set_mode(m[0]))
@@ -166,8 +166,8 @@ func _build() -> void:
     left.add_child(_spacer(16))
     var start := Button.new()
     start.text = "PLAY"
-    start.custom_minimum_size = Vector2(330, 56)
-    start.add_theme_font_size_override("font_size", 26)
+    start.custom_minimum_size = Vector2(330, 50)
+    start.add_theme_font_size_override("font_size", 25)
     start.add_theme_color_override("font_color", ACCENT)
     start.pressed.connect(func() -> void:
         Sfx.play_ui("ui_click")
@@ -176,14 +176,14 @@ func _build() -> void:
     left.add_child(start)
     var settings_btn := Button.new()
     settings_btn.text = "Settings"
-    settings_btn.custom_minimum_size = Vector2(330, 40)
+    settings_btn.custom_minimum_size = Vector2(330, 34)
     settings_btn.pressed.connect(func() -> void:
         Sfx.play_ui("ui_click")
         open_settings())
     left.add_child(settings_btn)
     var quit := Button.new()
     quit.text = "Quit"
-    quit.custom_minimum_size = Vector2(330, 40)
+    quit.custom_minimum_size = Vector2(330, 34)
     quit.pressed.connect(func() -> void: get_tree().quit())
     left.add_child(quit)
 
@@ -243,10 +243,9 @@ func _build() -> void:
     hint.add_theme_font_size_override("font_size", 14)
     hint.modulate = Color(1, 1, 1, 0.5)
     hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM, Control.PRESET_MODE_MINSIZE, 16)
-    hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
-    hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
-    add_child(hint)
+    hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+    right.add_child(_spacer(18))
+    right.add_child(hint)
 
     _set_mode(_mode)
     _set_bots(_bots)
