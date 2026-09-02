@@ -42,6 +42,10 @@ func _ready() -> void:
         if dir == null:
             continue
         for f in dir.get_files():
+            # Exported builds list "foo.wav.import" instead of "foo.wav" (the source
+            # file is not packed, only its import remap). Strip the suffix so the
+            # extension check and load() work outside the editor.
+            f = f.trim_suffix(".import").trim_suffix(".remap")
             var ext := f.get_extension().to_lower()
             if ext in ["wav", "ogg", "mp3"]:
                 var stream := load(dir_path + f) as AudioStream
