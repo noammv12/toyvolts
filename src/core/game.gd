@@ -197,6 +197,8 @@ func load_settings() -> void:
         quality_auto = true
         quality_probed = false
         render_scale = Quality.preset(quality).scale
+        if not headless:
+            print("[quality] first launch: auto picked %s for \"%s\"" % [quality, RenderingServer.get_video_adapter_name()])
     else:
         quality = saved_quality
         render_scale = cfg.get_value("graphics", "render_scale", Quality.preset(quality).scale)
@@ -313,6 +315,7 @@ func probe_quality() -> void:
         return
     var avg := t / _probe_frames.size()
     quality_probed = true
+    print("[quality] auto=%s probe: %.0f fps on %s (floor %.0f)" % [quality, 1.0 / avg, RenderingServer.get_video_adapter_name(), PROBE_FPS_FLOOR])
     if 1.0 / avg < PROBE_FPS_FLOOR:
         var lowered := Quality.lower(quality)
         quality = lowered
