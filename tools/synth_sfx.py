@@ -81,4 +81,57 @@ d = 0.14; save('footstep', norm(lp(noise(d), 900)*env(d, 0.002, 0.08, 0, 0.05), 
 d = 0.6; save('ui_click', norm(sine(0.05, 1200)*env(0.05, 0.001, 0.03, 0, 0.015), 0.4))
 # rocket flight loop (2 s, loopable-ish)
 d = 2.0; save('rocket_loop', norm(bp(noise(d), 200, 1800) * (0.7 + 0.3*np.sin(2*np.pi*11*t(d))), 0.45))
+# ---- v0.8 animations + effects -------------------------------------------------------
+def at(x, offset):          # delay a layer by `offset` seconds
+    return np.concatenate([np.zeros(int(SR*offset)), x])
+
+def clicks(times, dur=0.03, lo=800, hi=4000, decay=0.02):
+    parts = []
+    for i, when in enumerate(times):
+        c = bp(noise(dur), lo, hi) * env(dur, 0.001, decay, 0, 0.008) * (0.9 ** i)
+        parts.append(at(c, when))
+    return fit(*parts)
+
+# reload flourish: the spent magazine hits the floor and bounces once
+save('mag_drop', norm(fit(clicks([0.0, 0.085, 0.14], 0.035, 700, 3200),
+    sine(0.09, 380, 220)*env(0.09, 0.001, 0.06, 0, 0.02)*0.35), 0.45))
+
+# a toy bursting into parts: hollow plastic pop + snap
+save('toy_break', norm(soft(fit(sine(0.11, 760, 170)*env(0.11, 0.001, 0.07, 0, 0.03),
+    hp(noise(0.06), 1400)*env(0.06, 0.001, 0.04, 0, 0.02)*0.8,
+    lp(noise(0.18), 500)*env(0.18, 0.001, 0.12, 0, 0.05)*0.5), 1.7), 0.85))
+# the pieces bouncing on the floor afterwards
+save('part_clatter', norm(clicks([0.0, 0.07, 0.13, 0.22, 0.34, 0.41, 0.55, 0.72], 0.03, 900, 5000), 0.5))
+# respawn: the toy assembles itself
+save('assemble', norm(fit(sine(0.55, 260, 1500)*env(0.55, 0.02, 0.35, 0.1, 0.15)*0.5,
+    bp(noise(0.5), 1200, 7000)*env(0.5, 0.03, 0.3, 0.05, 0.15)*0.35,
+    at(fit(sine(0.3, 1320)*env(0.3, 0.002, 0.2, 0, 0.1),
+           sine(0.3, 1980)*env(0.3, 0.002, 0.18, 0, 0.1)*0.5), 0.34)), 0.6))
+
+# gatling: overheat steam burst, and the barrels winding down
+save('steam', norm(fit(hp(noise(0.75), 2600)*env(0.75, 0.006, 0.45, 0.08, 0.25),
+    bp(noise(0.3), 400, 1400)*env(0.3, 0.004, 0.2, 0, 0.1)*0.4), 0.5))
+d = 0.9; save('spin_down', norm(fit(sine(d, 210, 40)*env(d, 0.01, 0.6, 0.15, 0.25)*0.6,
+    bp(noise(d), 300, 2600)*(np.linspace(1.0, 0.15, int(SR*d)))*env(d, 0.01, 0.6, 0.15, 0.25)*0.5), 0.45))
+
+# grenade fuse tick and the bazooka backblast behind the shooter
+save('fuse_tick', norm(bp(noise(0.022), 2500, 9000)*env(0.022, 0.001, 0.014, 0, 0.006), 0.35))
+save('backblast', norm(soft(fit(lp(noise(0.38), 800)*env(0.38, 0.004, 0.24, 0.05, 0.12),
+    sine(0.25, 120, 55)*env(0.25, 0.002, 0.16, 0, 0.08)*0.7), 1.4), 0.7))
+
+# surface-aware impacts: what the bullet hit sounds like
+save('impact_wood', norm(soft(fit(sine(0.09, 300, 150)*env(0.09, 0.001, 0.06, 0, 0.02),
+    bp(noise(0.05), 700, 3000)*env(0.05, 0.001, 0.03, 0, 0.015)*0.8), 1.3), 0.5))
+save('impact_fabric', norm(lp(noise(0.09), 700)*env(0.09, 0.002, 0.06, 0, 0.03), 0.35))
+save('impact_metal', norm(fit(sine(0.28, 2400)*env(0.28, 0.001, 0.2, 0, 0.08)*0.5,
+    sine(0.22, 3600)*env(0.22, 0.001, 0.15, 0, 0.06)*0.3,
+    hp(noise(0.04), 3000)*env(0.04, 0.001, 0.025, 0, 0.01)), 0.45))
+save('impact_paper', norm(bp(noise(0.07), 1800, 9000)*env(0.07, 0.001, 0.045, 0, 0.02), 0.4))
+save('impact_plastic', norm(fit(sine(0.07, 900, 420)*env(0.07, 0.001, 0.045, 0, 0.02)*0.6,
+    bp(noise(0.04), 1500, 6000)*env(0.04, 0.001, 0.025, 0, 0.012)), 0.45))
+
+# low health: lub-dub
+save('heartbeat', norm(soft(fit(sine(0.16, 66, 42)*env(0.16, 0.004, 0.1, 0, 0.05),
+    at(sine(0.2, 58, 36)*env(0.2, 0.004, 0.13, 0, 0.06)*0.75, 0.19)), 1.5), 0.8))
+
 print('done')

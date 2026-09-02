@@ -20,7 +20,8 @@ const READY_EPS := 0.0005    ## draw countdown snaps to 0 below this (60 Hz floa
 const LOWER_TIME := 0.07     ## the outgoing weapon drops for this long before the new one rises
 const ARC_TILT_DEG := 65.0   ## how far the muzzle points down at the bottom of the arc
 const ARC_DROP := 0.32       ## metres the model sits below the grip at the bottom of the arc
-const SCOPE_SETTLE := 0.15   ## sniper: a shot fired sooner than this after scoping in is an unscoped shot
+const SCOPE_SETTLE := 0.15
+const MAG_SLOTS := [2, 3, 4]     ## these guns drop a magazine when they reload   ## sniper: a shot fired sooner than this after scoping in is an unscoped shot
 const COMBO_WINDOW := 0.8    ## melee: idle seconds before the three-swing combo drops
 const COMBO_FINISHER := 1.5  ## damage multiplier of the third (overhead) swing
 const COMBO_SWINGS := ["melee_light", "melee_up", "melee_over"]
@@ -126,6 +127,10 @@ func _reload_feedback() -> void:
     var f := _figure()
     if f:
         f.play_action("reload", data().reload_time)
+    var m := current_model()
+    if m != null and slot in MAG_SLOTS:
+        Vfx.mag_drop(m.global_transform * Vector3(0.0, -0.06, 0.14), m.global_transform.basis.x,
+            character.global_position.y + 0.02)
 
 
 ## Client puppets: the server says this toy fired from `origin` along `dir`.

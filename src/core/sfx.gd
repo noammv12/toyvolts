@@ -21,6 +21,11 @@ const GAIN := {   # per-sound dB trims
     "gift_open": -6.0, "boing": -8.0, "coin": -10.0, "firework_launch": -8.0, "firework_burst": -3.0,
     "candle_out": -8.0, "confetti_pop": -6.0, "party_horn": -6.0, "fanfare": -4.0,
     "woof": -1.0, "chirp": -7.0,
+    # v0.8 animations + effects
+    "mag_drop": -12.0, "toy_break": -3.0, "part_clatter": -9.0, "assemble": -6.0,
+    "steam": -7.0, "spin_down": -12.0, "fuse_tick": -14.0, "backblast": -8.0,
+    "impact_wood": -10.0, "impact_fabric": -12.0, "impact_metal": -11.0,
+    "impact_paper": -11.0, "impact_plastic": -10.0, "heartbeat": -10.0,
 }
 
 var _streams := {}

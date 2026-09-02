@@ -12,7 +12,15 @@ var _count := 0
 
 func _ready() -> void:
     Arsenal.spread_scale = 0.0
-    _check("sound bank loaded (%d streams)" % Sfx._streams.size(), Sfx._streams.size() >= 28)
+    _check("sound bank loaded (%d streams)" % Sfx._streams.size(), Sfx._streams.size() >= 60)
+    # music loops are levelled where they are started; every one-shot needs a GAIN trim or it
+    # plays at raw 0 dB
+    const NO_TRIM := ["walking", "party_theme", "kpop_theme"]
+    var no_gain := PackedStringArray()
+    for name in Sfx._streams:
+        if not Sfx.GAIN.has(name) and not NO_TRIM.has(name):
+            no_gain.append(name)
+    _check("every sound effect has a level trim (%s)" % str(no_gain), no_gain.is_empty())
     _test_bindings()
     _test_weapon_state()
     _test_net_codec()
@@ -765,6 +773,25 @@ func _test_animation() -> void:
         await get_tree().process_frame
     _check("melee holds the two-handed idle (melee %.2f, aim %.2f)" % [f._melee_pose, f._aim],
         f._melee_pose > 0.8 and f._aim < 0.2)
+
+    # reloading a gun drops the spent magazine, out of the pool
+    player.arsenal.select(2)
+    await _wait_swap(player)
+    player.arsenal.current().clip = 5
+    var mags0: int = Vfx._free["mag"].size()
+    var nodes1 := Vfx.get_child_count()
+    player.arsenal.reload()
+    _check("the rifle starts reloading", player.arsenal.current().is_reloading())
+    await get_tree().process_frame
+    _check("reloading drops a pooled magazine (free %d -> %d, +%d nodes)" % [mags0, Vfx._free["mag"].size(),
+        Vfx.get_child_count() - nodes1],
+        Vfx._free["mag"].size() == mags0 - 1 and Vfx.get_child_count() - nodes1 == 0)
+    player.arsenal.select(1)   # melee: no magazine
+    await _wait_swap(player)
+    var mags1: int = Vfx._free["mag"].size()
+    player.arsenal.reload()
+    await get_tree().process_frame
+    _check("melee has no magazine to drop", Vfx._free["mag"].size() == mags1)
 
     arena.queue_free()
     await get_tree().process_frame

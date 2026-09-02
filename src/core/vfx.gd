@@ -11,7 +11,7 @@ signal shake(pos: Vector3, strength: float)   ## the local player converts this 
 
 const MAX_DECALS := 96
 const POOL_SIZES := {
-    "tracer": 24, "light": 8, "sprite": 48, "fireball": 4, "decal": 32,
+    "tracer": 24, "light": 8, "sprite": 48, "fireball": 4, "decal": 32, "mag": 6,
     "p_casing": 12, "p_impact": 16, "p_impact_char": 8, "p_debris": 4, "p_sparks": 4,
     "trail_rocket": 4, "trail_grenade": 4,
 }
@@ -25,6 +25,7 @@ var _spark_mesh: BoxMesh
 var _char_spark_mesh: BoxMesh
 var _debris_mesh: BoxMesh
 var _casing_mesh: BoxMesh
+var _mag_mesh: BoxMesh
 var _trail_mesh := {}          ## rocket/grenade -> BoxMesh
 var _mats := {}                ## key -> StandardMaterial3D (shared)
 var _pmats := {}               ## kind -> ParticleProcessMaterial (shared)
@@ -60,6 +61,9 @@ func _ready() -> void:
     _casing_mesh = BoxMesh.new()
     _casing_mesh.size = Vector3(0.04, 0.04, 0.09)
     _casing_mesh.material = _particle_mat(Color(0.85, 0.7, 0.3), 0.0)
+    _mag_mesh = BoxMesh.new()
+    _mag_mesh.size = Vector3(0.075, 0.16, 0.05)
+    _mag_mesh.material = _particle_mat(Color(0.2, 0.2, 0.24), 0.0)
     for rocket in [true, false]:
         var mesh := BoxMesh.new()
         mesh.size = Vector3.ONE * (0.16 if rocket else 0.09)
@@ -112,6 +116,8 @@ func warm_up() -> void:
     tracer(p, p + Vector3(0, 0, 3), Color(0.6, 0.9, 1.0))
     muzzle_flash(p, Vector3.FORWARD)
     casing(p, Vector3.RIGHT)
+    mag_drop(p + Vector3(0, 0.4, 0), Vector3.RIGHT, p.y)
+    jump_puff(p)
     impact(p, Vector3.UP, false)
     impact(p, Vector3.UP, true)
     explosion(p, 2.0)
@@ -194,6 +200,28 @@ func jump_puff(pos: Vector3, size := 1.0) -> void:
     tw.tween_property(puff, "scale", Vector3(2.4, 2.4, 1.0), 0.3).set_ease(Tween.EASE_OUT)
     tw.tween_property(puff, "modulate:a", 0.0, 0.3)
     _release_after(puff, "sprite", 0.35)
+
+
+## Reload flourish: the spent magazine falls out of the gun, tumbles and clatters on the floor.
+func mag_drop(pos: Vector3, right: Vector3, floor_y: float) -> void:
+    var mag := _acquire("mag") as MeshInstance3D
+    mag.transparency = 0.0
+    mag.global_position = pos
+    mag.rotation = Vector3(randf_range(-0.4, 0.4), randf() * TAU, randf_range(-0.3, 0.3))
+    var land := pos + right * randf_range(0.08, 0.26) + Vector3(0, 0, 0)
+    land.y = minf(floor_y, pos.y - 0.05)
+    var fall := clampf(sqrt(maxf(0.05, pos.y - land.y)) * 0.42, 0.18, 0.7)
+    var tw := _tween(mag)
+    tw.set_parallel(true)
+    tw.tween_property(mag, "global_position:x", land.x, fall)
+    tw.tween_property(mag, "global_position:z", land.z, fall)
+    tw.tween_property(mag, "global_position:y", land.y, fall).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+    tw.tween_property(mag, "rotation", mag.rotation + Vector3(randf_range(2.5, 5.0), 0.0, randf_range(-3.0, 3.0)), fall)
+    tw.set_parallel(false)
+    tw.tween_callback(func() -> void: Sfx.play("mag_drop", land, 0.0, 0.2))
+    tw.tween_interval(1.0)
+    tw.tween_property(mag, "transparency", 1.0, 0.4)
+    _release_after(mag, "mag", fall + 1.5)
 
 
 func casing(pos: Vector3, right: Vector3) -> void:
@@ -326,6 +354,11 @@ func _make(kind: String) -> Node:
             mat.rim = 1.0
             mat.rim_tint = 0.2
             mi.material_override = mat
+            mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+            n = mi
+        "mag":
+            var mi := MeshInstance3D.new()
+            mi.mesh = _mag_mesh
             mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
             n = mi
         "light":
