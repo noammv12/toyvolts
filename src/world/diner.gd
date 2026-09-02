@@ -18,7 +18,7 @@ const TOP := 3.0               ## counter / table top height
 func _build() -> void:
     spawns = [
         Vector3(-21, 0.3, 10), Vector3(21, 0.3, -10), Vector3(-21, 0.3, -10), Vector3(21, 0.3, 10),
-        Vector3(-6.5, 0.3, 5), Vector3(3, 0.3, -8), Vector3(-8, 0.3, -9), Vector3(6.5, 0.3, -5),
+        Vector3(-8, 0.3, 4.5), Vector3(3, 0.3, -8), Vector3(-8, 0.3, -9), Vector3(6.5, 0.3, -5),
     ]
     player_start = Vector3(0, 0.3, 15)
     dummy_spots = [Vector3(4, 0.3, 8), Vector3(-6, 0.3, 9), Vector3(0, TOP + 0.3, 0)]

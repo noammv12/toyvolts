@@ -24,6 +24,7 @@ var active := true
 var winner_text := ""
 var winner: Character = null
 var spawn_points: Array[Vector3] = []
+const OCCUPIED_RADIUS := 1.2      ## a toy this close to a spawn point makes it unusable
 var round_number := 1
 var round_active := true
 var base_positions := {}     ## team -> Vector3 (ctb)
@@ -156,6 +157,11 @@ func respawn_now(c: Character) -> void:
         c.respawn(p, atan2(p.x, p.z))  # face the arena centre
 
 
+## The arena hosting this match (parent), if it can resolve spawn overlaps.
+func _arena() -> ArenaBase:
+    return get_parent() as ArenaBase
+
+
 ## The spawn point farthest from any living enemy (on the team's own half in Capture the Battery).
 func pick_spawn(for_whom: Character) -> Vector3:
     var candidates: Array[Vector3] = spawn_points
@@ -176,13 +182,20 @@ func pick_spawn(for_whom: Character) -> Vector3:
             var c := node as Character
             if c == null or c == for_whom or not c.alive:
                 continue
+            var d := p.distance_to(c.global_position)
+            if d < OCCUPIED_RADIUS:
+                score = -INF      # somebody (friend or foe) is standing on it
+                break
             if c.team != 0 and c.team == for_whom.team:
                 continue
-            score = minf(score, p.distance_to(c.global_position))
+            score = minf(score, d)
         score += randf() * 2.0
         if score > best_score:
             best_score = score
             best = p
+    var arena := _arena()
+    if arena != null:
+        best = arena.safe_spawn(best, for_whom)
     return best
 
 

@@ -1207,7 +1207,7 @@ func _test_match() -> void:
     m.match_ended.connect(func(_t: String, _w: Character) -> void: ended[0] = true)
     bot.take_damage(1000.0, player, bot.center(), Vector3.ZERO, false)
     _check("reaching the limit ends the match (%s)" % m.winner_text,
-        ended[0] and not Game.match_active and m.winner == player and m.winner_text == "YOU WINS")
+        ended[0] and not Game.match_active and m.winner == player and m.winner_text == "%s WINS" % player.display_name.to_upper())
     m.restart()
     _check("restart resets scores and revives", Game.match_active and player.kills == 0 and bot.alive)
 
@@ -1283,6 +1283,35 @@ func _test_map(key: String, path: String) -> void:
     player.collision_mask = Character.LAYER_WORLD | Character.LAYER_CHARACTER
     Game.match_active = true
     _check("%s: %d spots are clear (%s)" % [key, spots.size(), ", ".join(bad) if not bad.is_empty() else "ok"], bad.is_empty())
+    # the standing silhouette at every spawn (and the first stand) touches no furniture
+    player.global_position = Vector3(0, 40, 0)   # park the player out of the way of the query
+    var blocked := PackedStringArray()
+    var starts: Array = room.spawns.duplicate()
+    if room.player_start != Vector3.INF:
+        starts.append(room.player_start)
+    for p in starts:
+        if not room.spawn_clear(p, player):
+            blocked.append(str(p))
+    _check("%s: %d spawns + start have standing room (%s)" % [key, starts.size(), ", ".join(blocked) if not blocked.is_empty() else "ok"], blocked.is_empty())
+    # a toy standing on a spawn point makes it unusable, and a blocked spot resolves to open floor
+    var mc: MatchController = room.get_node_or_null("Match")
+    var squatters := get_tree().get_nodes_in_group("bots")
+    if mc != null and not squatters.is_empty():
+        var squatter: Character = squatters[0]
+        var spot: Vector3 = room.spawns[2]
+        squatter.global_position = spot
+        await get_tree().physics_frame
+        await get_tree().physics_frame
+        var picks := 0
+        for i in 12:
+            if mc.pick_spawn(player).distance_to(spot) < 1.0:
+                picks += 1
+        _check("%s: nobody respawns on top of a toy (%d/12 picks hit the squatted spawn)" % [key, picks], picks == 0)
+        var resolved: Vector3 = room.safe_spawn(spot, player)
+        _check("%s: a squatted spawn resolves %.1f m away onto clear floor" % [key, resolved.distance_to(spot)],
+            resolved.distance_to(spot) >= 0.9 and room.spawn_clear(resolved, player))
+        squatter.global_position = room.spawns[1]
+    player.global_position = room.spawns[0]
     var bots := get_tree().get_nodes_in_group("bots")
     var grounded := 0
     for b in bots:

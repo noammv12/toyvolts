@@ -454,7 +454,7 @@ func _client_ready() -> void:
         if not teams:
             c.set_color(ArenaBase.FFA_COLORS[(players.keys().find(id) + 3) % ArenaBase.FFA_COLORS.size()])
         var m := _match()
-        var p: Vector3 = m.pick_spawn(c) if m != null else _arena.spawns[0]
+        var p: Vector3 = m.pick_spawn(c) if m != null else _arena.safe_spawn(_arena.spawns[0], c)
         c.global_position = p
         c.yaw = atan2(p.x, p.z)
         c.protection_left = Character.SPAWN_PROTECTION

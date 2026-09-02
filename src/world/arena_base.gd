@@ -78,6 +78,7 @@ func _populate() -> void:
     var p := _side_spawn(team, 0) if (Game.mode == "ctb" and base_positions.has(team)) else spawns[0]
     if player_start != Vector3.INF and Game.mode != "ctb":
         p = player_start
+    p = safe_spawn(p)
     if Net.has_local_human():
         spawn_human(1, 1, Game.player_name, Game.skin, team, p, atan2(p.x, p.z), true)
     match Game.mode:
@@ -122,6 +123,47 @@ func spawn_human(net_id: int, peer_id: int, display_name: String, skin: String, 
 ## Map layout goes here.
 func _build() -> void:
     pass
+
+
+## A clear place to stand at (or near) `at`: the standing capsule must not overlap world
+## geometry or another toy. Tries the spot, then rings of offsets out to ~3.6 m, then straight
+## up. Bots idle on spawn points and props get added to maps, so the raw table is never trusted.
+const SPAWN_RING_STEP := 1.2
+const SPAWN_RINGS := 3
+
+func safe_spawn(at: Vector3, exclude: Node = null) -> Vector3:
+    if spawn_clear(at, exclude):
+        return at
+    for ring in range(1, SPAWN_RINGS + 1):
+        var r := SPAWN_RING_STEP * ring
+        for k in 8:
+            var a := TAU * k / 8.0 + ring * 0.3
+            var p := at + Vector3(cos(a) * r, 0.0, sin(a) * r)
+            if spawn_clear(p, exclude):
+                return p
+    for up in [1.0, 2.0, 3.0]:
+        var p := at + Vector3(0, up, 0)
+        if spawn_clear(p, exclude):
+            return p
+    return at
+
+
+## The standing silhouette at `at` (feet) touches nothing solid: neither walls / furniture
+## nor another toy's body.
+func spawn_clear(at: Vector3, exclude: Node = null) -> bool:
+    var world := get_world_3d()
+    if world == null:
+        return true
+    var cap := CapsuleShape3D.new()
+    cap.radius = 0.3
+    cap.height = 1.7
+    var q := PhysicsShapeQueryParameters3D.new()
+    q.shape = cap
+    q.transform = Transform3D(Basis.IDENTITY, at + Vector3(0, 0.12 + 0.85, 0))
+    q.collision_mask = Character.LAYER_WORLD | Character.LAYER_CHARACTER
+    if exclude is CollisionObject3D:
+        q.exclude = [exclude.get_rid()]
+    return world.direct_space_state.intersect_shape(q, 1).is_empty()
 
 
 ## Bases at the two first spawns unless the map placed them; batteries at battery_spawns
@@ -186,6 +228,7 @@ func _spawn_bots(count: int, teams: bool) -> void:
         var p := spawns[(i + 1) % spawns.size()]
         if teams and Game.mode == "ctb" and base_positions.has(b.team):
             p = _side_spawn(b.team, i)
+        p = safe_spawn(p)
         b.position = p
         b.yaw = atan2(p.x, p.z)
         add_child(b)
