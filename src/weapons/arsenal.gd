@@ -30,8 +30,13 @@ func _ready() -> void:
     character = get_parent() as Character
     for d in WeaponDB.all():
         states.append(WeaponState.new(d))
-    _build_models()
-    _show_model(slot)
+    # the Figure (a sibling) builds its rig in the Character's _ready, after ours: defer
+    _build_models.call_deferred()
+    _show_model.call_deferred(slot)
+
+
+func _figure() -> Figure:
+    return character.get_node_or_null("Figure") as Figure
 
 
 func current() -> WeaponState:
@@ -63,12 +68,28 @@ func select_offset(offset: int) -> void:
 
 
 func reload() -> void:
-    current().start_reload()
+    if current().start_reload():
+        var f := _figure()
+        if f:
+            f.play_action("reload", data().reload_time)
 
 
 func refill_all() -> void:
     for s in states:
         s.refill()
+
+
+func _process(_delta: float) -> void:
+    # Guns always point where the character aims; melee keeps the hand's own orientation.
+    var m := current_model()
+    if m == null or character == null or not character.alive:
+        return
+    if data().kind == WeaponData.Kind.MELEE:
+        m.rotation = Vector3(deg_to_rad(-90.0), 0.0, 0.0)   # blade up along the forearm
+    else:
+        var dir := character.aim_dir()
+        var up := Vector3.UP if absf(dir.y) < 0.99 else Vector3.RIGHT
+        m.global_basis = Basis.looking_at(dir, up)
 
 
 func _physics_process(delta: float) -> void:
@@ -88,7 +109,7 @@ func _physics_process(delta: float) -> void:
             if s.ready_to_fire():
                 _fire(s)
             elif s.uses_ammo() and s.clip == 0:
-                s.start_reload()
+                reload()
         if d.kind == WeaponData.Kind.MELEE and alt and not _alt_was and s.ready_to_fire():
             _melee(s, d.heavy_damage, d.heavy_interval, true)
     _trigger_was = trigger
@@ -108,6 +129,10 @@ func _fire(s: WeaponState) -> void:
             s.consume_shot()
             _fire_projectile(d)
             _recoil_model()
+    if d.kind != WeaponData.Kind.MELEE and not d.auto:
+        var f := _figure()
+        if f:
+            f.play_action("fire", minf(d.fire_interval, 0.45))
     fired.emit(d)
     character.apply_kick(d.kick_deg)
 
@@ -184,6 +209,9 @@ func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
             hit_confirmed.emit(result.killed, false)
             Vfx.impact(other.center() - forward * 0.3, -forward, true)
     _swing_model(heavy)
+    var f := _figure()
+    if f:
+        f.play_action("melee_heavy" if heavy else "melee_light", interval)
     if not heavy:
         fired.emit(d)
 
@@ -212,11 +240,25 @@ func _falloff(d: WeaponData, dist: float) -> float:
 func _build_models() -> void:
     if character == null:
         return
+    var figure := character.get_node_or_null("Figure") as Figure
+    var parent: Node3D = figure.grip if (figure and figure.grip) else character.get_node("WeaponHolder")
     for d in WeaponDB.all():
         var m := WeaponModels.build(d)
         m.visible = false
-        character.get_node("WeaponHolder").add_child(m)
+        parent.add_child(m)
         _models.append(m)
+
+
+func current_model() -> Node3D:
+    return _models[slot - 1] if _models.size() >= slot else null
+
+
+## World-space point the shot visibly leaves from (the current weapon's barrel end).
+func muzzle_position() -> Vector3:
+    var m := current_model()
+    if m == null:
+        return character.global_position + Vector3(0, 1.0, 0)
+    return m.global_transform * Vector3(0, 0, -0.7)
 
 
 func _show_model(which: int) -> void:
@@ -247,10 +289,9 @@ func _swing_model(heavy: bool) -> void:
         return
     var m := _models[slot - 1]
     _kill_tween()
-    m.rotation_degrees.x = 70.0 if heavy else 45.0
+    m.position = Vector3(0, 0, -0.08 if heavy else -0.05)
     _model_tween = m.create_tween()
-    _model_tween.tween_property(m, "rotation_degrees:x", -25.0, 0.1 if heavy else 0.07)
-    _model_tween.tween_property(m, "rotation_degrees:x", 0.0, 0.25)
+    _model_tween.tween_property(m, "position", Vector3.ZERO, 0.2).set_ease(Tween.EASE_OUT)
 
 
 func _kill_tween() -> void:

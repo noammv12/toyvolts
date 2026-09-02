@@ -13,6 +13,8 @@ uniform float spec_strength : hint_range(0.0, 1.0) = 0.35;
 uniform bool grid = false;
 uniform float grid_size = 2.0;
 uniform float flash : hint_range(0.0, 1.0) = 0.0;   // hit / spawn-protection whiteout
+uniform vec4 tint : source_color = vec4(1.0);        // team colour wash
+uniform float tint_mix : hint_range(0.0, 1.0) = 0.0;
 
 varying vec3 world_pos;
 
@@ -28,6 +30,7 @@ void fragment() {
         float line = 1.0 - step(0.012, min(d.x, d.y));
         col *= mix(1.0, 0.88, line);
     }
+    col = mix(col, col * tint.rgb * 1.7, tint_mix);
     ALBEDO = mix(col, vec3(1.0), flash);
     ROUGHNESS = 1.0;
     METALLIC = 0.0;

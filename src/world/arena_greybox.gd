@@ -58,6 +58,7 @@ func _ready() -> void:
                 var d := DUMMY.instantiate() as Character
                 d.position = pos
                 d.yaw = PI  # face the default spawn
+                d.model_id = "Rogue"
                 add_child(d)
 
 
@@ -65,6 +66,7 @@ func _spawn_bots(count: int, teams: bool) -> void:
     for i in count:
         var b := BOT.instantiate() as Bot
         b.display_name = Bot.NAMES[i % Bot.NAMES.size()]
+        b.model_id = Skins.ALL[i % Skins.ALL.size()].id
         b.skill = randf_range(0.35, 0.75)
         if teams:
             b.team = 2 if i % 2 == 0 else 1

@@ -2,7 +2,7 @@ class_name Character
 extends CharacterBody3D
 ## Shared body for the player, bots and target dummies: Microvolts-style movement
 ## (constant run speed, no sprint, full air control, snappy jump, melee double jump),
-## health with head/body hitboxes, and the seven-slot Arsenal.
+## health with head/body hitboxes, the seven-slot Arsenal and an animated Figure.
 ## Controllers write `yaw`, `pitch`, `wish_dir`, `jump_pressed` and the arsenal triggers.
 
 signal died(victim: Character, killer: Character)
@@ -14,11 +14,12 @@ const HEAD_SHAPE_INDEX := 1
 const LAYER_WORLD := 1
 const LAYER_CHARACTER := 2
 const SPAWN_PROTECTION := 2.0
-const TOON: Shader = preload("res://shaders/toon.gdshader")
+const DEATH_HIDE_DELAY := 1.1
 
 @export var display_name := "Toy"
 @export var team := 0
 @export var body_color := Color(0.95, 0.42, 0.2)
+@export var model_id := "Knight"
 @export var respawn_at_home := false
 @export var run_speed := 7.0
 @export var ground_accel := 60.0
@@ -44,35 +45,29 @@ var jump_pressed := false
 
 var _jumps_left := 0
 var _was_on_floor := false
-var _body_mat: ShaderMaterial
-var _head_mat: ShaderMaterial
 var _flash := 0.0
+var _death_serial := 0
+var _team_ring: MeshInstance3D
 
 @onready var arsenal: Arsenal = $Arsenal
 @onready var weapon_holder: Node3D = $WeaponHolder
-@onready var body_mesh: MeshInstance3D = $Body
-@onready var head_mesh: MeshInstance3D = $HeadMesh
+@onready var figure: Figure = $Figure
 
 
 func _ready() -> void:
     add_to_group("characters")
     spawn_home = global_position
-    _body_mat = ShaderMaterial.new()
-    _body_mat.shader = TOON
-    _body_mat.set_shader_parameter("albedo", body_color)
-    body_mesh.material_override = _body_mat
-    _head_mat = ShaderMaterial.new()
-    _head_mat.shader = TOON
-    _head_mat.set_shader_parameter("albedo", body_color.lightened(0.35))
-    head_mesh.material_override = _head_mat
+    figure.setup(Skins.path(model_id), body_color, 0.35 if team != 0 else 0.0)
+    _build_team_ring()
     health_changed.emit(hp, max_hp)
 
 
 func set_color(color: Color) -> void:
     body_color = color
-    if _body_mat != null:
-        _body_mat.set_shader_parameter("albedo", color)
-        _head_mat.set_shader_parameter("albedo", color.lightened(0.35))
+    figure.set_tint(color, 0.35 if team != 0 else 0.0)
+    if _team_ring:
+        _team_ring.material_override.albedo_color = Color(color, 0.85)
+        _team_ring.visible = team != 0
 
 
 func _process(delta: float) -> void:
@@ -80,8 +75,13 @@ func _process(delta: float) -> void:
     var f := _flash
     if protection_left > 0.0:
         f = maxf(f, 0.25 + 0.2 * sin(Time.get_ticks_msec() * 0.02))
-    _body_mat.set_shader_parameter("flash", f)
-    _head_mat.set_shader_parameter("flash", f)
+    figure.set_flash(f)
+    if alive:
+        var local := global_transform.basis.inverse() * velocity
+        var v := Vector2(local.x, -local.z) / maxf(run_speed, 0.1)
+        figure.set_locomotion(v, is_on_floor(), delta)
+        figure.set_pitch(pitch)
+        figure.set_aiming(arsenal.data().kind != WeaponData.Kind.MELEE)
 
 
 func _physics_process(delta: float) -> void:
@@ -119,11 +119,11 @@ func max_jumps() -> int:
 
 
 func center() -> Vector3:
-    return global_position + Vector3(0, 1.0, 0)
+    return global_position + Vector3(0, 0.95, 0)
 
 
 func eye() -> Vector3:
-    return global_position + Vector3(0, 1.6, 0)
+    return global_position + Vector3(0, 1.45, 0)
 
 
 func facing() -> Vector3:
@@ -140,7 +140,7 @@ func get_aim_ray() -> Dictionary:
 
 
 func muzzle_position() -> Vector3:
-    return weapon_holder.global_position - weapon_holder.global_transform.basis.z * 0.6
+    return arsenal.muzzle_position()
 
 
 ## Camera recoil hook; only the local player does something with it.
@@ -157,6 +157,8 @@ func take_damage(amount: float, source: Character, _hit_pos: Vector3, impulse: V
     if source != null and source.arsenal != null:
         last_hit_weapon = source.arsenal.data().display_name
     _flash = 1.0
+    if amount >= 25.0:
+        figure.play_action("hit", 0.3)
     damaged.emit(amount, source, headshot)
     health_changed.emit(hp, max_hp)
     if hp <= 0.0:
@@ -178,13 +180,19 @@ func _die(killer: Character) -> void:
         killer.kills += 1
     velocity = Vector3.ZERO
     collision_layer = 0
-    visible = false
     arsenal.trigger = false
     arsenal.alt = false
+    figure.play_death()
+    _death_serial += 1
+    var serial := _death_serial
+    get_tree().create_timer(DEATH_HIDE_DELAY).timeout.connect(func() -> void:
+        if not alive and serial == _death_serial:
+            visible = false)
     died.emit(self, killer)
 
 
 func respawn(at: Vector3, look_yaw := 0.0) -> void:
+    _death_serial += 1
     global_position = at
     yaw = look_yaw
     pitch = 0.0
@@ -194,7 +202,28 @@ func respawn(at: Vector3, look_yaw := 0.0) -> void:
     protection_left = SPAWN_PROTECTION
     collision_layer = LAYER_CHARACTER
     visible = true
+    figure.revive()
     arsenal.refill_all()
     arsenal.select(2)
     health_changed.emit(hp, max_hp)
     respawned.emit()
+
+
+func _build_team_ring() -> void:
+    _team_ring = MeshInstance3D.new()
+    var torus := TorusMesh.new()
+    torus.inner_radius = 0.42
+    torus.outer_radius = 0.5
+    torus.rings = 24
+    torus.ring_segments = 8
+    _team_ring.mesh = torus
+    _team_ring.position = Vector3(0, 0.04, 0)
+    _team_ring.scale = Vector3(1, 0.25, 1)
+    var m := StandardMaterial3D.new()
+    m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    m.albedo_color = Color(body_color, 0.85)
+    _team_ring.material_override = m
+    _team_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+    _team_ring.visible = team != 0
+    add_child(_team_ring)

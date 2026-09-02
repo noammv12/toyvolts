@@ -14,9 +14,15 @@ var _recoil := 0.0
 
 
 func _ready() -> void:
+    model_id = Game.skin
     super()
     add_to_group("player")
     _spring_arm.add_excluded_object(get_rid())
+    camera.add_child(PostFx.new())
+    if Game.has_arg("slot"):
+        arsenal.select.call_deferred(int(Game.arg("slot")))
+    if Game.has_arg("orbit"):   # debug: orbit the camera around the figure (degrees)
+        $CameraRig.rotation.y = deg_to_rad(float(Game.arg("orbit")))
     yaw = deg_to_rad(float(Game.arg("yaw", "0")))
     pitch = deg_to_rad(float(Game.arg("pitch", "-10")))
     _pitch_node.rotation.x = pitch

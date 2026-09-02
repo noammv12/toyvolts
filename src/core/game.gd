@@ -9,6 +9,7 @@ var mouse_sensitivity := 0.0022
 var headless := false
 var mode := "practice"      ## practice | ffa | tdm
 var bot_count := 5
+var skin := "Knight"        ## Skins.ALL id
 var match_active := true
 var _args := {}
 
@@ -25,6 +26,7 @@ func _ready() -> void:
     if has_arg("mode"):
         mode = arg("mode")
     bot_count = int(arg("bots", "5"))
+    skin = arg("skin", skin)
 
 
 func has_arg(name: String) -> bool:

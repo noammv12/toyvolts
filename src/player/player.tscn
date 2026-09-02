@@ -9,13 +9,13 @@ display_name = "You"
 body_color = Color(0.95, 0.42, 0.2, 1)
 
 [node name="CameraRig" type="Node3D" parent="."]
-position = Vector3(0, 1.6, 0)
+position = Vector3(0, 1.55, 0)
 
 [node name="Pitch" type="Node3D" parent="CameraRig"]
 
 [node name="SpringArm" type="SpringArm3D" parent="CameraRig/Pitch"]
-position = Vector3(0.8, 0.25, 0)
-spring_length = 4.2
+position = Vector3(1.15, 0.45, 0)
+spring_length = 4.0
 margin = 0.15
 
 [node name="Camera" type="Camera3D" parent="CameraRig/Pitch/SpringArm"]

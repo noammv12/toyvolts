@@ -19,17 +19,44 @@ background_mode = 2
 sky = SubResource("sky")
 ambient_light_source = 3
 ambient_light_sky_contribution = 1.0
-ambient_light_energy = 0.7
-tonemap_mode = 0
+ambient_light_energy = 0.45
+tonemap_mode = 3
+tonemap_exposure = 1.0
+tonemap_white = 6.0
+ssao_enabled = true
+ssao_radius = 1.2
+ssao_intensity = 2.2
+ssao_power = 1.6
+ssil_enabled = true
+ssil_intensity = 0.8
+sdfgi_enabled = true
+sdfgi_min_cell_size = 0.3
+sdfgi_bounce_feedback = 0.4
+sdfgi_energy = 1.0
+glow_enabled = true
+glow_intensity = 0.45
+glow_bloom = 0.04
+glow_blend_mode = 0
+glow_hdr_threshold = 1.15
+fog_enabled = true
+fog_light_color = Color(0.78, 0.85, 0.95, 1)
+fog_density = 0.0025
+fog_sky_affect = 0.15
+adjustment_enabled = true
+adjustment_saturation = 1.12
+adjustment_contrast = 1.04
 
 [node name="Arena" type="Node3D"]
 script = ExtResource("1")
 
 [node name="Sun" type="DirectionalLight3D" parent="."]
 rotation_degrees = Vector3(-52, -38, 0)
-light_energy = 1.1
+light_energy = 1.15
+light_angular_distance = 1.2
 shadow_enabled = true
-directional_shadow_max_distance = 80.0
+shadow_blur = 1.6
+directional_shadow_max_distance = 70.0
+directional_shadow_blend_splits = true
 
 [node name="Env" type="WorldEnvironment" parent="."]
 environment = SubResource("env")

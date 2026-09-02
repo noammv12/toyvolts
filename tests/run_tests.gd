@@ -91,6 +91,12 @@ func _test_practice_scene() -> void:
     if player == null:
         return
     player.input_enabled = false
+    await get_tree().process_frame
+    _check("figure rig loaded (skeleton + tree)", player.figure.ready_ok and player.figure.skeleton != null and player.figure.tree.active)
+    _check("figure hand grip exists", player.figure.grip != null and player.figure.grip.get_child_count() == 7)
+    _check("figure materials toonified", player.figure.mats.size() >= 4)
+    _check("running anim loops", player.figure.anim_player.get_animation("Running_A").loop_mode == Animation.LOOP_LINEAR)
+    _check("muzzle comes from the held weapon", player.muzzle_position().distance_to(player.global_position) < 2.5)
 
     _check("spawns on rifle (slot 2)", player.arsenal.slot == 2)
     player.arsenal.select(1)

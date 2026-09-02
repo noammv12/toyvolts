@@ -13,7 +13,7 @@ func _ready() -> void:
     _label.font_size = 64
     _label.pixel_size = 0.004
     _label.outline_size = 16
-    _label.position = Vector3(0, 2.15, 0)
+    _label.position = Vector3(0, 2.05, 0)
     _label.text = "%d" % hp
     add_child(_label)
     health_changed.connect(_on_health)
