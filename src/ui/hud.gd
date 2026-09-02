@@ -262,9 +262,13 @@ func _refresh_slots(slot: int) -> void:
         _slot_labels[i].modulate = Color.WHITE if i + 1 == slot else Color(1, 1, 1, 0.45)
 
 
-func _on_hit(killed: bool, _headshot: bool) -> void:
+func _on_hit(killed: bool, headshot: bool) -> void:
     _overlay.hit_marker = 0.15
     _overlay.hit_kill = killed
+    if killed:
+        Sfx.play_ui("kill")
+    else:
+        Sfx.play_ui("headshot" if headshot else "hit_marker")
 
 
 func _on_damaged(amount: float, _source: Character, _headshot: bool) -> void:

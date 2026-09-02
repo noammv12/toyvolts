@@ -11,6 +11,7 @@ var _count := 0
 
 func _ready() -> void:
     Arsenal.spread_scale = 0.0
+    _check("sound bank loaded (%d streams)" % Sfx._streams.size(), Sfx._streams.size() >= 28)
     _test_weapon_state()
     await _test_practice_scene()
     await _test_match()
@@ -124,8 +125,10 @@ func _test_practice_scene() -> void:
     await _wait_swap(player)
     await _aim_at(player, dummy.center())
     var hp0 := dummy.hp
+    var fx0 := Vfx.get_child_count()
     await _pull_trigger(player)
     _check("rifle body shot does 9 (%.1f)" % (hp0 - dummy.hp), is_equal_approx(hp0 - dummy.hp, 9.0))
+    _check("a shot spawns effects (+%d nodes)" % (Vfx.get_child_count() - fx0), Vfx.get_child_count() >= fx0 + 4)
     await _aim_at(player, dummy.global_position + Vector3(0, 1.66, 0))
     hp0 = dummy.hp
     await _pull_trigger(player)

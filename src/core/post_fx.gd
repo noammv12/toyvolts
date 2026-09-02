@@ -14,6 +14,8 @@ func _ready() -> void:
     cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
     var m := ShaderMaterial.new()
     m.shader = OUTLINE
-    m.render_priority = 100
+    # Screen-reading materials live in the transparent pass; draw this FIRST there so sprites,
+    # glow streaks and smoke (all transparent) are composited on top of the outlined image.
+    m.render_priority = -128
     material_override = m
     position = Vector3(0, 0, -0.5)

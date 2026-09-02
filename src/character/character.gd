@@ -48,6 +48,7 @@ var _was_on_floor := false
 var _flash := 0.0
 var _death_serial := 0
 var _team_ring: MeshInstance3D
+var _step_t := 0.0
 
 @onready var arsenal: Arsenal = $Arsenal
 @onready var weapon_holder: Node3D = $WeaponHolder
@@ -100,6 +101,14 @@ func _physics_process(delta: float) -> void:
 
     if is_on_floor():
         _jumps_left = max_jumps()
+        if not _was_on_floor:
+            Sfx.play("land", global_position, -2.0)
+        var speed := Vector2(velocity.x, velocity.z).length()
+        if speed > 2.0:
+            _step_t -= delta * speed / run_speed
+            if _step_t <= 0.0:
+                _step_t = 0.34
+                Sfx.play("footstep", global_position, 0.0, 0.15)
     else:
         if _was_on_floor and _jumps_left == max_jumps():
             _jumps_left -= 1  # walked off a ledge: no free ground jump
@@ -108,6 +117,7 @@ func _physics_process(delta: float) -> void:
     if jump_pressed and _jumps_left > 0:
         velocity.y = jump_velocity
         _jumps_left -= 1
+        Sfx.play(Sfx.pick(["jump_a", "jump_b", "jump_c"]), global_position)
     jump_pressed = false
 
     _was_on_floor = is_on_floor()
@@ -162,8 +172,10 @@ func take_damage(amount: float, source: Character, _hit_pos: Vector3, impulse: V
     damaged.emit(amount, source, headshot)
     health_changed.emit(hp, max_hp)
     if hp <= 0.0:
+        Sfx.play("death", center())
         _die(source)
         return {"applied": true, "killed": true}
+    Sfx.play("hurt", center(), -2.0, 0.12)
     return {"applied": true, "killed": false}
 
 
@@ -205,6 +217,7 @@ func respawn(at: Vector3, look_yaw := 0.0) -> void:
     figure.revive()
     arsenal.refill_all()
     arsenal.select(2)
+    Sfx.play("respawn", center())
     health_changed.emit(hp, max_hp)
     respawned.emit()
 

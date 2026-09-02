@@ -23,6 +23,10 @@ func setup(weapon: WeaponData, owner_character: Character, initial_velocity: Vec
 func _ready() -> void:
     _build_mesh()
     _orient()
+    var rocket := data.projectile_gravity <= 0.0
+    Vfx.trail(self, rocket)
+    if rocket:
+        Sfx.attach_loop("rocket_loop", self)
 
 
 func _physics_process(delta: float) -> void:
@@ -54,6 +58,8 @@ func _physics_process(delta: float) -> void:
         var vn := n * bounced.dot(n)
         var vt := bounced - vn
         velocity = vn * data.bounciness + vt * 0.75
+        if bounced.length() > 2.0:
+            Sfx.play("grenade_bounce", hit.position, clampf(bounced.length() - 8.0, -10.0, 0.0), 0.15)
         if velocity.length() < 0.6:
             velocity = Vector3.ZERO
         global_position = hit.position + n * 0.08
@@ -74,6 +80,7 @@ func _explode(pos: Vector3, normal: Vector3, direct_target: Character) -> void:
     Damage.splash(get_tree(), center, data.splash_radius, data.splash_damage,
         shooter if is_instance_valid(shooter) else null, data.knockback, null)
     Vfx.explosion(center, data.splash_radius)
+    Sfx.play("explosion", center, 0.0, 0.1)
     queue_free()
 
 

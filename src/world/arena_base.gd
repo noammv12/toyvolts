@@ -25,6 +25,7 @@ var _scene_cache := {}
 func _ready() -> void:
     _build()
     _bake_navmesh()
+    Vfx.warm_up()
     var match_node := get_node_or_null("Match") as MatchController
     if match_node:
         match_node.spawn_points = spawns

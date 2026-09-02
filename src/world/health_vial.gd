@@ -62,4 +62,5 @@ func _on_body_entered(body: Node3D) -> void:
     var c := body as Character
     if c != null and c.alive and c.hp < c.max_hp:
         c.heal(HEAL)
+        Sfx.play("vial_pickup", global_position)
         queue_free()

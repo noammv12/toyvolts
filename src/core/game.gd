@@ -27,6 +27,8 @@ func _ready() -> void:
         mode = arg("mode")
     bot_count = int(arg("bots", "5"))
     skin = arg("skin", skin)
+    if has_arg("timescale"):   # debug: slow motion for effect captures
+        Engine.time_scale = float(arg("timescale"))
 
 
 func has_arg(name: String) -> bool:

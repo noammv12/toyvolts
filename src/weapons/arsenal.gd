@@ -8,6 +8,9 @@ signal fired(data: WeaponData)
 signal hit_confirmed(killed: bool, headshot: bool)
 
 const MASK_HIT := Character.LAYER_WORLD | Character.LAYER_CHARACTER
+const SHOT_SOUND := {2: "rifle_shot", 3: "shotgun_shot", 4: "sniper_shot", 5: "gatling_shot",
+    6: "bazooka_launch", 7: "grenade_launch"}
+const FLASH_SIZE := {2: 0.7, 3: 1.1, 4: 0.9, 5: 0.6, 6: 1.3, 7: 0.8}
 
 static var spread_scale := 1.0   ## tests set 0 for deterministic shots
 
@@ -19,11 +22,13 @@ var swap_left := 0.0
 var trigger := false
 var alt := false
 var aiming := false
+var scope_level := 0             ## sniper: 0 off, 1 = zoom_fov, 2 = zoom_fov / 2
 
 var _trigger_was := false
 var _alt_was := false
 var _models: Array[Node3D] = []
 var _model_tween: Tween
+var _spin_was := false
 
 
 func _ready() -> void:
@@ -55,7 +60,9 @@ func select(new_slot: int) -> void:
     slot = new_slot
     swap_left = data().swap_time
     aiming = false
+    scope_level = 0
     _show_model(slot)
+    Sfx.play("weapon_change", character.center(), -4.0)
     weapon_changed.emit(slot, data())
 
 
@@ -69,6 +76,7 @@ func select_offset(offset: int) -> void:
 
 func reload() -> void:
     if current().start_reload():
+        Sfx.play("reload", character.center())
         var f := _figure()
         if f:
             f.play_action("reload", data().reload_time)
@@ -77,6 +85,14 @@ func reload() -> void:
 func refill_all() -> void:
     for s in states:
         s.refill()
+
+
+## Current zoom FOV for the camera, or 0 when not zoomed.
+func zoom_fov() -> float:
+    var d := data()
+    if d.scope_overlay:
+        return 0.0 if scope_level == 0 else (d.zoom_fov if scope_level == 1 else d.zoom_fov * 0.5)
+    return d.zoom_fov if aiming else 0.0
 
 
 func _process(_delta: float) -> void:
@@ -102,16 +118,32 @@ func _physics_process(delta: float) -> void:
 
     var s := current()
     var d := s.data
-    aiming = alt and d.zoom_fov > 0.0 and swap_left <= 0.0
+    if d.scope_overlay:
+        if alt and not _alt_was and swap_left <= 0.0:
+            scope_level = (scope_level + 1) % 3
+        aiming = scope_level > 0
+    else:
+        aiming = alt and d.zoom_fov > 0.0 and swap_left <= 0.0
+
     if swap_left <= 0.0:
         var want_fire := trigger and (d.auto or not _trigger_was)
         if want_fire:
             if s.ready_to_fire():
                 _fire(s)
             elif s.uses_ammo() and s.clip == 0:
-                reload()
+                if s.reserve > 0:
+                    reload()
+                elif not _trigger_was:
+                    Sfx.play("empty_click", character.center())
         if d.kind == WeaponData.Kind.MELEE and alt and not _alt_was and s.ready_to_fire():
             _melee(s, d.heavy_damage, d.heavy_interval, true)
+        if d.spin_up > 0.0:
+            var spinning := trigger and not s.overheated
+            if spinning and not _spin_was:
+                Sfx.play("gatling_spin", character.center())
+            if s.overheated and s.heat >= 0.999 and not _spin_was:
+                Sfx.play("overheat", character.center())
+            _spin_was = spinning
     _trigger_was = trigger
     _alt_was = alt
 
@@ -129,10 +161,12 @@ func _fire(s: WeaponState) -> void:
             s.consume_shot()
             _fire_projectile(d)
             _recoil_model()
-    if d.kind != WeaponData.Kind.MELEE and not d.auto:
-        var f := _figure()
-        if f:
-            f.play_action("fire", minf(d.fire_interval, 0.45))
+    if d.kind != WeaponData.Kind.MELEE:
+        Sfx.play(SHOT_SOUND.get(slot, "rifle_shot"), muzzle_position())
+        if not d.auto:
+            var f := _figure()
+            if f:
+                f.play_action("fire", minf(d.fire_interval, 0.45))
     fired.emit(d)
     character.apply_kick(d.kick_deg)
 
@@ -144,7 +178,7 @@ func _fire_hitscan(d: WeaponData) -> void:
     var scoped := aiming and d.scope_overlay
     var spread := 0.0 if scoped else d.spread_deg
     var dmg_scale := d.unscoped_damage_mult if (d.scope_overlay and not scoped) else 1.0
-    var muzzle := character.muzzle_position()
+    var muzzle := muzzle_position()
     var space := character.get_world_3d().direct_space_state
     for p in d.pellets:
         var dir := _apply_spread(base_dir, spread)
@@ -163,13 +197,17 @@ func _fire_hitscan(d: WeaponData) -> void:
                 if result.applied:
                     hit_confirmed.emit(result.killed, head)
             Vfx.impact(hit.position, hit.normal, target != null)
-        Vfx.tracer(muzzle, end)
-    Vfx.muzzle_flash(muzzle)
+        Vfx.tracer(muzzle, end, Color(1.0, 0.85, 0.45) if slot != 4 else Color(0.6, 0.9, 1.0))
+    var m := current_model()
+    var right: Vector3 = m.global_transform.basis.x if m else Vector3.RIGHT
+    Vfx.muzzle_flash(muzzle, base_dir, FLASH_SIZE.get(slot, 0.7))
+    if slot != 5 or randf() < 0.5:
+        Vfx.casing(muzzle - base_dir * 0.45, right)
 
 
 func _fire_projectile(d: WeaponData) -> void:
     var ray := character.get_aim_ray()
-    var muzzle := character.muzzle_position()
+    var muzzle := muzzle_position()
     var space := character.get_world_3d().direct_space_state
     var query := PhysicsRayQueryParameters3D.create(
         ray.origin, ray.origin + ray.dir * 200.0, MASK_HIT, [character.get_rid()])
@@ -182,7 +220,7 @@ func _fire_projectile(d: WeaponData) -> void:
     p.setup(d, character, dir * d.projectile_speed)
     character.get_parent().add_child(p)
     p.global_position = muzzle
-    Vfx.muzzle_flash(muzzle)
+    Vfx.muzzle_flash(muzzle, dir, FLASH_SIZE.get(slot, 1.0))
 
 
 func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
@@ -191,6 +229,10 @@ func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
     var d := s.data
     var origin := character.center()
     var forward: Vector3 = character.get_aim_ray().dir
+    var flat := Vector3(forward.x, 0.0, forward.z).normalized()
+    if character.is_on_floor():
+        character.velocity += flat * (4.0 if heavy else 2.5)   # the little lunge every swing has
+    Sfx.play("melee_swing", origin, 0.0 if heavy else -3.0, 0.1)
     for node in character.get_tree().get_nodes_in_group("characters"):
         var other := node as Character
         if other == null or other == character or not other.alive:
@@ -208,6 +250,7 @@ func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
         if result.applied:
             hit_confirmed.emit(result.killed, false)
             Vfx.impact(other.center() - forward * 0.3, -forward, true)
+            Sfx.play("melee_hit", other.center())
     _swing_model(heavy)
     var f := _figure()
     if f:
@@ -267,7 +310,6 @@ func _show_model(which: int) -> void:
     if _models.size() >= which and which >= 1:
         var m := _models[which - 1]
         m.position = Vector3(0, -0.25, 0.1)
-        m.rotation = Vector3.ZERO
         _kill_tween()
         _model_tween = m.create_tween()
         _model_tween.tween_property(m, "position", Vector3.ZERO, data().swap_time) \
