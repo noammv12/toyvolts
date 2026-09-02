@@ -95,7 +95,8 @@ func _process(delta: float) -> void:
     super(delta)
     _frame += 1
     if _autofire_frame >= 0 and _frame >= _autofire_frame:
-        arsenal.trigger = true
+        # semi-auto weapons need a release between shots: pulse the trigger
+        arsenal.trigger = arsenal.data().auto or ((_frame - _autofire_frame) / 8) % 2 == 0
     _recoil = lerpf(_recoil, 0.0, minf(1.0, delta * 10.0))
     _trauma = maxf(0.0, _trauma - delta * 1.6)
     var shake := _trauma * _trauma

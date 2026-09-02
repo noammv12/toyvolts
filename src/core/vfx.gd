@@ -29,7 +29,8 @@ var _trail_mesh := {}          ## rocket/grenade -> BoxMesh
 var _mats := {}                ## key -> StandardMaterial3D (shared)
 var _pmats := {}               ## kind -> ParticleProcessMaterial (shared)
 var _free := {}                ## kind -> Array[Node]
-var _pending: Array = []       ## [release_msec, node, kind]
+var _pending: Array = []       ## [release_clock, node, kind]
+var _clock := 0.0              ## scaled seconds since start
 var _tweens := {}              ## node -> Tween
 var _decals_live: Array[Decal] = []
 var _decal_serial := 0
@@ -87,14 +88,14 @@ func _ready() -> void:
             _free[kind].append(_make(kind))
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+    _clock += delta   # scaled game time: effects and their release agree during hitstop/slow-mo
     if _pending.is_empty():
         return
-    var now := Time.get_ticks_msec()
     var i := 0
     while i < _pending.size():
         var entry: Array = _pending[i]
-        if now >= entry[0]:
+        if _clock >= entry[0]:
             _release(entry[1], entry[2])
             _pending.remove_at(i)
         else:
@@ -190,7 +191,6 @@ func casing(pos: Vector3, right: Vector3) -> void:
     var axis := (right + Vector3.UP * 0.2).normalized()
     p.global_basis = Basis.looking_at(axis, Vector3.UP if absf(axis.y) < 0.99 else Vector3.RIGHT) \
         * Basis(Vector3.UP, deg_to_rad(90.0))
-    p.restart()
     _release_after(p, "p_casing", 1.4)
 
 
@@ -201,7 +201,6 @@ func impact(pos: Vector3, normal: Vector3, on_character: bool) -> void:
     var up := Vector3.UP if absf(normal.y) < 0.99 else Vector3.RIGHT
     # process material direction is +Y: orient +Y along the surface normal
     sparks.global_basis = Basis.looking_at(normal, up) * Basis(Vector3.RIGHT, deg_to_rad(-90.0))
-    sparks.restart()
     _release_after(sparks, kind, 0.6)
     var puff := _sprite(_smoke, Color(0.85, 0.8, 0.75, 0.55) if not on_character else Color(1.0, 0.5, 0.45, 0.5), 0.35, false)
     puff.global_position = pos + normal * 0.08
@@ -258,12 +257,10 @@ func explosion(pos: Vector3, radius: float) -> void:
     var debris := _acquire("p_debris") as GPUParticles3D
     debris.global_position = pos
     debris.global_basis = Basis.IDENTITY
-    debris.restart()
     _release_after(debris, "p_debris", 1.6)
     var sparks := _acquire("p_sparks") as GPUParticles3D
     sparks.global_position = pos
     sparks.global_basis = Basis.IDENTITY
-    sparks.restart()
     _release_after(sparks, "p_sparks", 0.8)
     _decal(pos, Vector3.UP, radius * 0.9, Color(0.08, 0.07, 0.06, 0.8), true)
     shake.emit(pos, clampf(radius / 2.5, 0.4, 1.2))
@@ -280,7 +277,7 @@ func trail(node: Node3D, rocket: bool) -> Node3D:
     rig.position = Vector3.ZERO
     rig.rotation = Vector3.ZERO
     var p := rig.get_node("Smoke") as GPUParticles3D
-    p.restart()
+    p.emitting = false
     p.emitting = true
     return rig
 
@@ -383,6 +380,8 @@ func _acquire(kind: String) -> Node:
         n.scale = Vector3.ONE
         n.rotation = Vector3.ZERO
     if n is GPUParticles3D:
+        # Godot 4.7: restart() on a one-shot emitter leaves `emitting` false; toggling works.
+        n.emitting = false
         n.emitting = true
     return n
 
@@ -404,7 +403,7 @@ func _hide(n: Node) -> void:
 
 
 func _release_after(n: Node, kind: String, seconds: float) -> void:
-    _pending.append([Time.get_ticks_msec() + int(seconds * 1000.0), n, kind])
+    _pending.append([_clock + seconds, n, kind])
 
 
 func _tween(n: Node) -> Tween:
