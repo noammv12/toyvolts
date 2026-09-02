@@ -16,6 +16,7 @@ var mouse_sensitivity := 0.0022
 var headless := false
 var mode := "practice"      ## practice | ffa | tdm | elim
 var bot_count := 5
+var bot_difficulty := "normal"   ## easy | normal | hard (Bot.SKILL_RANGES)
 var skin := "Knight"        ## Skins.ALL id
 var match_active := true
 
@@ -64,6 +65,8 @@ func _ready() -> void:
     if has_arg("mode"):
         mode = arg("mode")
     bot_count = int(arg("bots", str(bot_count)))
+    if has_arg("difficulty"):
+        bot_difficulty = arg("difficulty")
     skin = arg("skin", skin)
     if has_arg("timescale"):   # debug: slow motion for effect captures
         base_time_scale = float(arg("timescale"))
@@ -167,6 +170,7 @@ func load_settings() -> void:
     if not has_arg("mode"):
         mode = cfg.get_value("match", "mode", mode)
         bot_count = cfg.get_value("match", "bots", bot_count)
+        bot_difficulty = cfg.get_value("match", "difficulty", bot_difficulty)
     vsync = cfg.get_value("display", "vsync", vsync)
     fps_cap = cfg.get_value("display", "fps_cap", fps_cap)
     fullscreen = cfg.get_value("display", "fullscreen", fullscreen)
@@ -192,6 +196,7 @@ func save_settings() -> void:
     cfg.set_value("player", "sensitivity", mouse_sensitivity)
     cfg.set_value("match", "mode", mode)
     cfg.set_value("match", "bots", bot_count)
+    cfg.set_value("match", "difficulty", bot_difficulty)
     cfg.set_value("graphics", "quality", quality if Quality.is_level(quality) else "high")
     cfg.set_value("graphics", "auto", quality_auto)
     cfg.set_value("graphics", "probed", quality_probed)

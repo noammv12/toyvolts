@@ -15,6 +15,7 @@ var _mode := "ffa"
 var _bots := 5
 var _mode_buttons := {}
 var _skin_buttons := {}
+var _difficulty_buttons := {}
 var _blurb: Label
 var _bots_label: Label
 var _preview_figure: Figure
@@ -121,6 +122,17 @@ func _build() -> void:
     plus.custom_minimum_size = Vector2(40, 36)
     plus.pressed.connect(func() -> void: _set_bots(_bots + 1))
     bots_row.add_child(plus)
+    bots_row.add_child(_spacer_w(14))
+    for level in ["easy", "normal", "hard"]:
+        var b := Button.new()
+        b.text = level.capitalize()
+        b.toggle_mode = true
+        b.custom_minimum_size = Vector2(74, 36)
+        b.pressed.connect(func() -> void:
+            Sfx.play_ui("ui_click")
+            _set_difficulty(level))
+        bots_row.add_child(b)
+        _difficulty_buttons[level] = b
 
     left.add_child(_spacer(16))
     var start := Button.new()
@@ -209,6 +221,7 @@ func _build() -> void:
 
     _set_mode(_mode)
     _set_bots(_bots)
+    _set_difficulty(Game.bot_difficulty)
     _set_skin(Game.skin)
 
 
@@ -282,6 +295,20 @@ func _set_mode(mode: String) -> void:
 func _set_bots(n: int) -> void:
     _bots = clampi(n, 1, 7)
     _bots_label.text = str(_bots)
+
+
+func _set_difficulty(level: String) -> void:
+    if not Bot.SKILL_RANGES.has(level):
+        level = "normal"
+    Game.bot_difficulty = level
+    for key in _difficulty_buttons:
+        _difficulty_buttons[key].button_pressed = key == level
+
+
+func _spacer_w(w: float) -> Control:
+    var c := Control.new()
+    c.custom_minimum_size = Vector2(w, 0)
+    return c
 
 
 func _set_skin(id: String) -> void:

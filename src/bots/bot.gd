@@ -6,6 +6,8 @@ extends Character
 
 const NAMES := ["Zed", "Pixie", "Brick", "Gizmo", "Sprocket", "Dolly", "Bolt", "Widget", "Nova", "Tock"]
 const THINK_INTERVAL := 0.15
+const SKILL_RANGES := {"easy": [0.12, 0.35], "normal": [0.35, 0.75], "hard": [0.78, 1.0]}
+const TRICK_SKILL := 0.7    ## from here on bots swap-cancel and wave-step like a player
 
 @export var skill := 0.5   ## 0..1: aim error, reaction time, turn speed
 
@@ -39,7 +41,16 @@ func _ready() -> void:
     _favorite = [2, 3, 5, 6, 7].pick_random()
     _think = randf_range(0.3, 0.9)
     damaged.connect(_on_damaged)
-    arsenal.fired.connect(func(_d: WeaponData) -> void: shots_fired += 1)
+    arsenal.fired.connect(_on_fired)
+
+
+func _on_fired(d: WeaponData) -> void:
+    shots_fired += 1
+    # swap-cancel: a skilled toy flicks to melee after every semi-auto shot; the next think
+    # tick draws the gun again with its recovery already gone (twice the fire rate)
+    if skill >= TRICK_SKILL and not d.auto and d.kind != WeaponData.Kind.MELEE:
+        arsenal.select(1)
+        _think = minf(_think, 0.12)
 
 
 func _on_damaged(_amount: float, source: Character, _headshot: bool) -> void:
@@ -270,8 +281,11 @@ func _move_engaged(delta: float, dist: float, sees: bool) -> void:
     else:
         var side := toward.cross(Vector3.UP) * _strafe
         wish_dir = (side + toward * 0.15).normalized()
-        if is_on_floor() and randf() < delta * 0.5:
+        var hop_rate := 0.5 if skill < TRICK_SKILL else 1.3
+        if is_on_floor() and randf() < delta * hop_rate:
             jump_pressed = true
+        elif not is_on_floor() and skill >= TRICK_SKILL and jumps_left() > 0 and velocity.y < 0.0 and randf() < delta * 4.0:
+            jump_pressed = true   # wave-step: second hop on the way down when melee is out
 
 
 func _move_to(p: Vector3, delta: float) -> void:

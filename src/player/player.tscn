@@ -14,8 +14,8 @@ position = Vector3(0, 1.55, 0)
 [node name="Pitch" type="Node3D" parent="CameraRig"]
 
 [node name="SpringArm" type="SpringArm3D" parent="CameraRig/Pitch"]
-position = Vector3(1.15, 0.45, 0)
-spring_length = 4.0
+position = Vector3(1.45, 0.6, 0)
+spring_length = 4.2
 margin = 0.15
 
 [node name="Camera" type="Camera3D" parent="CameraRig/Pitch/SpringArm"]

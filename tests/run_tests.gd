@@ -269,14 +269,18 @@ func _test_practice_scene() -> void:
 func _test_match() -> void:
     Game.mode = "ffa"
     Game.bot_count = 2
+    Game.bot_difficulty = "hard"
     var arena: Node3D = (load(ARENA) as PackedScene).instantiate()
     add_child(arena)
     await get_tree().process_frame
+    Game.bot_difficulty = "normal"
     var player := arena.get_node("Player") as Player
     player.input_enabled = false
     var m := arena.get_node("Match") as MatchController
     var bots := get_tree().get_nodes_in_group("bots")
     _check("2 bots spawned", bots.size() == 2)
+    var hard: bool = bots.size() == 2 and bots[0].skill >= 0.78 and bots[1].skill >= 0.78
+    _check("hard difficulty gives hard skills (%.2f, %.2f)" % [bots[0].skill, bots[1].skill], hard)
     _check("match is FFA to 20", m.mode == "ffa" and m.score_limit == 20)
     if bots.size() < 2:
         arena.queue_free()
@@ -308,8 +312,10 @@ func _test_match() -> void:
         await get_tree().physics_frame
     _check("vial heals +30 (hp %.0f)" % bot.hp, is_equal_approx(bot.hp, 70.0) and not is_instance_valid(vial))
 
-    # scoring + end + restart
+    # scoring + end + restart (bots may already have kills from the warm-up: clear the board)
     Game.match_active = true
+    for c in m.contestants():
+        c.kills = 0
     m.score_limit = 1
     var ended := [false]
     m.match_ended.connect(func(_t: String) -> void: ended[0] = true)

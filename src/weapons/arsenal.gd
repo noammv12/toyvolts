@@ -11,6 +11,7 @@ const MASK_HIT := Character.LAYER_WORLD | Character.LAYER_CHARACTER
 const SHOT_SOUND := {2: "rifle_shot", 3: "shotgun_shot", 4: "sniper_shot", 5: "gatling_shot",
     6: "bazooka_launch", 7: "grenade_launch"}
 const FLASH_SIZE := {2: 0.7, 3: 1.1, 4: 0.9, 5: 0.6, 6: 1.3, 7: 0.8}
+const WEAPON_SCALE := 1.3   ## toy guns are oversized (and it keeps them visible past the big head)
 
 static var spread_scale := 1.0   ## tests set 0 for deterministic shots
 
@@ -316,6 +317,7 @@ func _build_models() -> void:
     for d in WeaponDB.all():
         var m := WeaponModels.build(d)
         m.visible = false
+        m.scale = Vector3.ONE * WEAPON_SCALE
         parent.add_child(m)
         _models.append(m)
 

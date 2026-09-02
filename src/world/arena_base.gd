@@ -115,7 +115,8 @@ func _spawn_bots(count: int, teams: bool) -> void:
         var b := BOT.instantiate() as Bot
         b.display_name = Bot.NAMES[i % Bot.NAMES.size()]
         b.model_id = Skins.ALL[i % Skins.ALL.size()].id
-        b.skill = randf_range(0.35, 0.75)
+        var range: Array = Bot.SKILL_RANGES.get(Game.bot_difficulty, Bot.SKILL_RANGES["normal"])
+        b.skill = randf_range(range[0], range[1])
         if teams:
             b.team = 2 if i % 2 == 0 else 1
             b.body_color = TEAM_COLORS[b.team]
