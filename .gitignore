@@ -1,0 +1,16 @@
+# Godot
+.godot/
+.import/
+*.import.tmp
+export_presets.cfg
+export/
+# OS / editor
+.DS_Store
+Thumbs.db
+*.tmp
+# Build artifacts / captures
+build/
+captures/
+# Reference game files are NEVER committed
+reference/
+tests/last_run.log

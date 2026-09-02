@@ -1,0 +1,54 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://src/player/player.gd" id="1"]
+[ext_resource type="Shader" path="res://shaders/toon.gdshader" id="2"]
+
+[sub_resource type="CapsuleShape3D" id="cap_shape"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="CapsuleMesh" id="cap_mesh"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="ShaderMaterial" id="body_mat"]
+shader = ExtResource("2")
+shader_parameter/albedo = Color(0.95, 0.42, 0.2, 1)
+
+[sub_resource type="BoxMesh" id="visor_mesh"]
+size = Vector3(0.34, 0.14, 0.3)
+
+[sub_resource type="ShaderMaterial" id="visor_mat"]
+shader = ExtResource("2")
+shader_parameter/albedo = Color(0.12, 0.12, 0.15, 1)
+
+[node name="Player" type="CharacterBody3D" groups=["player"]]
+script = ExtResource("1")
+
+[node name="Collision" type="CollisionShape3D" parent="."]
+position = Vector3(0, 0.9, 0)
+shape = SubResource("cap_shape")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.9, 0)
+mesh = SubResource("cap_mesh")
+surface_material_override/0 = SubResource("body_mat")
+
+[node name="Visor" type="MeshInstance3D" parent="Body"]
+position = Vector3(0, 0.58, -0.28)
+mesh = SubResource("visor_mesh")
+surface_material_override/0 = SubResource("visor_mat")
+
+[node name="CameraRig" type="Node3D" parent="."]
+position = Vector3(0, 1.6, 0)
+
+[node name="Pitch" type="Node3D" parent="CameraRig"]
+
+[node name="SpringArm" type="SpringArm3D" parent="CameraRig/Pitch"]
+position = Vector3(0.8, 0.25, 0)
+spring_length = 4.2
+margin = 0.15
+
+[node name="Camera" type="Camera3D" parent="CameraRig/Pitch/SpringArm"]
+fov = 70.0
+near = 0.05
