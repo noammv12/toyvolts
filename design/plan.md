@@ -58,6 +58,8 @@ so M4 multiplayer is a transport change, not a rewrite.
 - **M1 seven weapons** â€” data-driven, all behaviours in the table, swap + swap-cancel, damage, headshots, splash, HUD ammo.
 - **M2 match loop** â€” bots (AI Battle), FFA + TDM rules, respawn + protection, health vials, scoreboard, round timer.
 - **M3 art pass** â€” 4 toy figures (rigged, Mixamo anims), 7 toy weapon models, one map at Hobby-Shop scale, sounds.
+- **M3f perf + settings (v0.4, 2026-09-02)** - quality presets low/medium/high + auto-detect, settings sheet, pause menu, pooled VFX, bench tool; swap-cancel, wave-step, one-shot sniper.
+- **M3g objectives + content (v0.5, 2026-09-02)** - Capture the Battery, item capsules, bot difficulty, Diner map, map select, camera/gun visibility.
 - **M4 online** â€” ENet, host/join room, lobby screen, 2-8 players.
 - **Later** â€” parts customization, capsule shop, Elimination, Capture the Battery, Zombie, more maps.
 
