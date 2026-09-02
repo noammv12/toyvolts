@@ -96,9 +96,12 @@ times and quits), `--host` / `--join=ip:port` / `--server` with `--port=N` (onli
 ## Develop
 
 - `tools/import.sh` after adding scripts with `class_name` or new assets
-- `tools/test.sh` headless tests (207 checks: bindings, weapons, packets, interpolation, lag compensation, the wave-step at 60 Hz, crouch, combos, radar rules, modes, maps, the party room)
+- `tools/test.sh` headless tests (263 checks: bindings, weapons, packets, interpolation, lag compensation, the wave-step at 60 Hz, crouch, combos, radar rules, modes, maps, the party room, the animation states and every effect pool)
 - `tools/net_test.sh` two-process loopback smoke: headless host + client, handshake, spawns, a confirmed (lag-compensated) hit, a whole short match, the party room mirrored
 - `tools/shot.sh <name> [--mode=ffa|tdm|elim|ctb|party|practice] [--bots=N] [--map=diner|lalu_party] [--quality=low] [--frames=N] [--pos=x,y,z] [--yaw=deg] [--pitch=deg] [--orbit=deg] [--ui=pause|settings|lobby] [--party_finish]` renders one frame (or a comma list of frames) to `captures/`
+  - driving the toy for an effect shot: `--aim=x,y,z` (holds the crosshair on a world point), `--move=x,z`, `--jump=N`, `--autofire=N`, `--slot=N`, `--crouch`, `--hp=N`, `--kill_me=N`
+  - catching a short effect: `--freeze_on=fire|explode|hit|land|death|respawn [--freeze_delay=frames]`, `--timescale=0.25`, `--dump_vfx`, `--fxtest` (stages the whole effect library in front of the player)
+  - note: after a freeze, `--frames=` must land soon after it -- the respawn timer keeps running while the tree is paused
 - `tools/synth_sfx.py` / `tools/synth_party.py` regenerate the procedural sounds (party: pops, squeaks, cheers, fireworks, the Happy Birthday chiptune loop)
 - `tools/bench.sh [low medium high]` frame-time table per preset; `GODOT_ARGS="--gpu-index 1"` to pick the iGPU
 - `tools/export.sh` builds `build/ToyVolts-win64.zip`

@@ -119,7 +119,10 @@ func set_locomotion(local_vel: Vector2, on_floor: bool, delta: float) -> void:
     # bank into the strafe (the Figure node's own rotation is otherwise unused)
     var lean_target := -_loco.x * deg_to_rad(LEAN_DEG) * (1.0 - _air)
     _lean = lerpf(_lean, lean_target, minf(1.0, delta * 8.0))
-    rotation.z = _lean
+    # dead-band: a transform write here dirties the whole rig (skeleton, hand attachment, grip
+    # and seven weapon models), so a toy standing still must not pay for it every frame
+    if absf(_lean - rotation.z) > 0.0008:
+        rotation.z = _lean
     if aim_modifier:
         # creeping crouched: lean into the walk on top of the hips drop
         aim_modifier.move_lean = aim_modifier.crouch_target * minf(1.0, _loco.length()) * 0.12

@@ -440,9 +440,12 @@ func _low_health(delta: float) -> void:
     if _player != null and _player.alive and _player.hp > 0.0:
         hurt = clampf((LOW_HP - _player.hp) / LOW_HP, 0.0, 1.0)
     if hurt <= 0.01:
-        _vignette.modulate.a = 0.0
+        if _vignette.visible:
+            _vignette.visible = false     # hidden costs nothing; a transparent full-screen quad does
+            _vignette.modulate.a = 0.0
         _heart_t = 0.0
         return
+    _vignette.visible = true
     var beat := Time.get_ticks_msec() * 0.001 * (3.4 + 2.6 * hurt)
     _vignette.modulate.a = hurt * (0.4 + 0.16 * sin(beat))
     _heart_t -= delta
@@ -593,6 +596,7 @@ func _build() -> void:
     _vignette.stretch_mode = TextureRect.STRETCH_SCALE
     _vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
     _vignette.modulate = Color(1, 1, 1, 0)
+    _vignette.visible = false
     add_child(_vignette)
     _damage_flash = ColorRect.new()
     _damage_flash.color = Color(1, 0.1, 0.05, 0.0)

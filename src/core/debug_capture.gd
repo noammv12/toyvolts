@@ -19,6 +19,8 @@ func _ready() -> void:
             ev.physical_keycode = OS.find_keycode_from_string(parts[1]) as Key
             InputSetup.bind(parts[0], ev)
             Game.settings_changed.emit()
+    if Game.has_arg("hp"):        # capture: start the local toy on a set health
+        _set_hp(float(Game.arg("hp", "12")))
     if Game.has_arg("kill_me"):   # capture: the local toy falls apart on frame N
         _kill_me(int(Game.arg("kill_me", "60")))
     if Game.has_arg("fxtest"):
@@ -57,6 +59,19 @@ func _show_ui(which: String, at_frame: int) -> void:
             Net.host(int(Game.arg("port", "7799")))
     elif menu != null and menu.has_method("open_settings"):
         menu.open_settings()
+
+
+## `--hp=N`: hold the local toy at N health (for the low-health feedback captures).
+func _set_hp(hp: float) -> void:
+    var player: Character = null
+    while player == null:
+        await get_tree().process_frame
+        player = Game.local_player()
+    while true:
+        player.hp = hp
+        player.protection_left = 0.0
+        player.health_changed.emit(player.hp, player.max_hp)
+        await get_tree().process_frame
 
 
 ## `--kill_me=N`: a deterministic death for the fall-apart / death-camera captures.

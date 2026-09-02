@@ -339,6 +339,7 @@ func fall_apart(at: Vector3, color: Color, crouched := false) -> void:
         mesh.mesh = _part_meshes[i % _part_meshes.size()]
         mesh.material_override = _solid_mat(light_color if i % 3 == 0 else color)
         mesh.transparency = 0.0
+        part.collision_mask = Character.LAYER_WORLD
         part.freeze = false
         part.linear_velocity = dir * randf_range(2.6, 6.0) + Vector3(0, randf_range(1.6, 4.0), 0)
         part.angular_velocity = Vector3(randf_range(-10, 10), randf_range(-10, 10), randf_range(-10, 10))
@@ -696,6 +697,7 @@ func _hide(n: Node) -> void:
         n.freeze = true                   # park it: a loose body would keep simulating at y -100
         n.linear_velocity = Vector3.ZERO
         n.angular_velocity = Vector3.ZERO
+        n.collision_mask = 0              # ...and stop it pairing with the pile it is parked in
     if n is Node3D:
         n.visible = false
         n.position = Vector3(0, -100, 0)
