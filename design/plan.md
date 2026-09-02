@@ -10,7 +10,7 @@ are scale/style reference only and never enter this repo.
 - Lobby-room third-person shooter, toy figures fighting in oversized human spaces.
 - Every player carries **all seven weapons**, keys 1-7. Skill = swapping at the right moment,
   swap-cancelling reloads and recoil, melee double-jump movement ("wave-step").
-- No sprint, no crouch. Constant run speed, full air control, short snappy jumps.
+- No sprint. Crouch on L-Ctrl (half speed, low hitbox). Constant run speed, full air control, short snappy jumps.
 - Low time-to-kill. ~100 HP, health vials drop on kills, short spawn protection.
 - Over-the-shoulder camera, character offset left, crosshair centred.
 - Modes (order we build): AI Battle â†’ FFA â†’ TDM â†’ Elimination â†’ Capture the Battery â†’ Zombie.
@@ -63,6 +63,7 @@ so M4 multiplayer is a transport change, not a rewrite.
 - **M3h swap feel + wave-step (v0.6, 2026-09-02)** - per-weapon draw times, buffered fire/alt/jump/select during draws, lower/raise arc + camera dip, frame-accurate wave-step test.
 - **M4 online (v0.6, 2026-09-02)** - ENet host/join + lobby, dedicated `--server`, server-authoritative Characters with client prediction + reconciliation, snapshot interpolation, reliable events, loopback smoke test, `tools/NET.md`.
 - **M5 Lalu's Birthday (v0.7, 2026-09-02)** - a present for Hila: party room map `lalu_party` (cake + 12 candles, 30 balloons, pinata, 5 gifts with surprises, cannons, disco floor, bouncy castle, moon corner, slide, banner, Hebrew wall text), mode `party` (no PvP, dancing guests in hats, checklist, finale + reset), shootable world props (`shootable` group, layer 4), `PartyZone` movement volumes, Net `_ev_party` mirror, party SFX + chiptune theme, title-screen button + confetti.
+- **M6 keys + fidelity + lag compensation (v0.7, 2026-09-02)** - rebindable keys (Settings > Controls, [controls] in settings.cfg, HUD shows the bound key); fidelity pass from the research doc: swap-cancel recovery only shotgun/bazooka/launcher, sniper single 4x zoom (+8x toggle) with a 0.15 s scope settle, gatling spin resets airborne, crouch on L-Ctrl (0.5x speed, capsule 0.8, lowered head hitbox, camera -0.45 m, hips drop, no jump, headroom check, bots crouch when hurt), melee 3-swing combo (1.5x finisher, 0.8 s window), radar rules (allies always, enemies 1.5 s after firing or within 6 m, hidden while scoped); lag compensation (client render tick in the input packet, 15-tick hitbox history on the host, rewind capped at 200 ms).
 - **Later** â€” parts customization, capsule shop, Elimination, Capture the Battery, Zombie, more maps.
 
 ## Verify ritual

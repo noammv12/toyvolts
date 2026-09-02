@@ -45,6 +45,7 @@ check captures/net_client.log "\[net\] spawned C-1"                   "client se
 check captures/net_client.log "\[net\] first snapshot"                "snapshots flow"
 check captures/net_host.log   "\[net\] hit: C[0-9]*"                  "a client shot hit on the host"
 check captures/net_client.log "\[net\] hit_confirmed"                 "client got the hit confirmation"
+check captures/net_host.log   "\[net\] rewind [0-9]* ticks"          "host rewound the client's shot (lag compensation)"
 if grep -qE "SCRIPT ERROR|ERROR: .*rpc|Parse Error" captures/net_host.log captures/net_client.log; then
     grep -E "SCRIPT ERROR|ERROR: .*rpc|Parse Error" captures/net_host.log captures/net_client.log | head -5
     fail=1

@@ -21,6 +21,7 @@ enum Kind { MELEE, HITSCAN, PROJECTILE }
 @export var falloff_end := 0.0
 @export var falloff_min := 1.0      ## damage multiplier at falloff_end
 @export var swap_time := 0.25       ## draw time after switching to this weapon
+@export var swap_cancel := false    ## switching away drops the recovery (Microvolts: shotgun, bazooka, launcher only)
 @export var kick_deg := 0.3         ## camera recoil per shot
 @export var knockback := 0.0        ## impulse on the target (m/s)
 @export var color := Color.WHITE    ## placeholder model tint

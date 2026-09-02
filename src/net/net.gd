@@ -56,6 +56,9 @@ var _ping_t := 0.0
 var _arena: ArenaBase
 var _local: Character              ## the toy this machine controls (host or client)
 var _remote_shots := 0
+var _histories := {}               ## server: net_id -> NetHistory (lag compensation)
+var rewinds := 0
+var last_rewind_ticks := 0
 
 
 func _ready() -> void:
@@ -162,6 +165,7 @@ func leave() -> void:
     print("[net] leaving (%s)" % role_name())
     if _peer != null:
         _peer.close()
+    _histories.clear()
     multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
     _peer = null
     role = Role.OFFLINE
@@ -510,11 +514,20 @@ func client_before_simulate(c: Character) -> void:
         b = _select_args[-1] if _select_args.size() > 1 else 0
         _select_args.clear()
     var ray := c.get_aim_ray()
-    var packet := {"seq": _seq, "yaw": c.yaw, "pitch": c.pitch, "wish": c.wish_dir,
-        "trigger": c.arsenal.trigger, "alt": c.arsenal.alt, "jump": c.jump_pressed,
+    var packet := {"seq": _seq, "yaw": c.yaw, "pitch": c.pitch, "wish": c.wish_dir, "view_tick": view_tick(),
+        "trigger": c.arsenal.trigger, "alt": c.arsenal.alt, "jump": c.jump_pressed, "crouch": c.crouch_held,
         "jump_seq": _jump_seq, "select_seq": _select_seq, "select_a": a, "select_b": b,
         "reload_seq": _reload_seq, "aim_origin": ray.origin, "aim_dir": ray.dir}
     rpc_id(1, "_rpc_input", NetCodec.encode_input(packet))
+
+
+## Client: the server tick the puppets are drawn at (the NetInterp clock), 0 before any snapshot.
+func view_tick() -> int:
+    for nid in _interp:
+        var it: NetInterp = _interp[nid]
+        if it.render_tick >= 0.0:
+            return int(roundf(it.render_tick))
+    return 0
 
 
 ## Character hook (client, local toy): after move_and_slide. Record the prediction and ease
@@ -563,13 +576,14 @@ func _send_snapshot() -> void:
         var c := _char(nid)
         if c == null:
             continue
+        history_for(c).record(tick, c.global_position, c.yaw, c.crouching)
         var s := c.arsenal.current()
         toys.append({"net_id": nid, "pos": c.global_position, "vel": c.velocity, "yaw": c.yaw,
             "pitch": c.pitch, "slot": c.arsenal.slot, "hp": c.hp, "alive": c.alive,
             "on_floor": c.is_on_floor(), "carrying": c.carrying != null,
             "scope": c.arsenal.scope_level, "aiming": c.arsenal.aiming, "clip": s.clip,
             "reserve": s.reserve, "ack_seq": c.controller.last_seq if c.controller is NetInput else 0,
-            "jumps_used": c._jumps_used})
+            "jumps_used": c._jumps_used, "crouch": c.crouching})
     rpc("_snapshot", NetCodec.encode_snapshot(tick, m.time_left if m != null else 0.0, toys))
 
 
@@ -656,6 +670,7 @@ func puppet_step(c: Character) -> void:
         c.arsenal.select(int(s.slot))
     c.arsenal.scope_level = int(s.scope)
     c.arsenal.aiming = s.aiming
+    c.crouch_held = s.get("crouch", false)
 
 
 @rpc("any_peer", "call_remote", "unreliable")
@@ -667,6 +682,103 @@ func _ping(t: int) -> void:
 @rpc("authority", "call_remote", "unreliable")
 func _pong(t: int) -> void:
     ping_ms = Time.get_ticks_msec() - t
+
+
+# ---- lag compensation: rewind hitboxes to what the shooter saw -----------------------------------
+
+func history_for(c: Character) -> NetHistory:
+    var h: NetHistory = _histories.get(c.net_id)
+    if h == null:
+        h = NetHistory.new()
+        _histories[c.net_id] = h
+    return h
+
+
+## Server: a remote human's hitscan ray, judged against the world that client was rendering.
+## World geometry (and party props) block the ray as it is now; every other toy is tested
+## where it stood at the shooter's view tick (capped at NetHistory.MAX_REWIND_TICKS back).
+## Kinematic bodies cannot be moved and queried in the same step, so the past hitboxes
+## (body capsule + head sphere, crouched or not) are intersected analytically. Returns a
+## Dictionary shaped like PhysicsDirectSpaceState3D.intersect_ray() (position, normal,
+## collider, shape), or {} for a clean miss.
+func rewound_raycast(shooter: Character, origin: Vector3, dir: Vector3, range_m: float, view: int,
+        space: PhysicsDirectSpaceState3D) -> Dictionary:
+    var target := NetHistory.rewind_tick(view, tick)
+    var back := tick - target
+    var wq := PhysicsRayQueryParameters3D.create(origin, origin + dir * range_m,
+        Character.LAYER_WORLD | Character.LAYER_TARGET, [shooter.get_rid()])
+    var best: Dictionary = space.intersect_ray(wq)
+    var best_t: float = best.position.distance_to(origin) if best else range_m
+    for nid in characters:
+        var c := _char(nid)
+        if c == null or c == shooter or not c.alive:
+            continue
+        var pos := c.global_position
+        var crouch := c.crouching
+        var h: NetHistory = _histories.get(nid)
+        if h != null and back > 0:
+            var past := h.at(target)
+            if not past.is_empty():
+                pos = past.pos
+                crouch = past.crouch
+        var head_y := 0.9 if crouch else 1.4
+        var cap_h := Character.CROUCH_HEIGHT if crouch else Character.STAND_HEIGHT
+        var th := _ray_sphere(origin, dir, pos + Vector3(0, head_y, 0), 0.36)
+        var tb := _ray_capsule(origin, dir, pos + Vector3(0, 0.3, 0), pos + Vector3(0, cap_h - 0.3, 0), 0.3)
+        var t := -1.0
+        var head := false
+        if th > 0.0 and (tb <= 0.0 or th <= tb):
+            t = th
+            head = true
+        elif tb > 0.0:
+            t = tb
+        if t > 0.0 and t < best_t:
+            best_t = t
+            best = {"position": origin + dir * t, "normal": -dir, "collider": c,
+                "shape": Character.HEAD_SHAPE_INDEX if head else 0, "rewound": back}
+    rewinds += 1
+    last_rewind_ticks = back
+    if rewinds == 1 or rewinds % 300 == 0:
+        print("[net] rewind %d ticks for C%d's shot (view %d, now %d)" % [back, shooter.net_id, view, tick])
+    return best
+
+
+## Ray (origin, unit dir) vs sphere: distance along the ray to the first hit, or -1.
+static func _ray_sphere(o: Vector3, d: Vector3, c: Vector3, r: float) -> float:
+    var m := o - c
+    var b := m.dot(d)
+    var cc := m.dot(m) - r * r
+    if cc > 0.0 and b > 0.0:
+        return -1.0
+    var disc := b * b - cc
+    if disc < 0.0:
+        return -1.0
+    var t := -b - sqrt(disc)
+    return maxf(t, 0.0) if t >= -r else -1.0
+
+
+## Ray vs a vertical capsule (segment a -> b, radius r): the cylinder side plus the two caps.
+static func _ray_capsule(o: Vector3, d: Vector3, a: Vector3, b: Vector3, r: float) -> float:
+    var best := -1.0
+    # side: circle test in XZ, then the hit must lie between the cap centres
+    var ox := o.x - a.x
+    var oz := o.z - a.z
+    var qa := d.x * d.x + d.z * d.z
+    if qa > 1e-6:
+        var qb := 2.0 * (ox * d.x + oz * d.z)
+        var qc := ox * ox + oz * oz - r * r
+        var disc := qb * qb - 4.0 * qa * qc
+        if disc >= 0.0:
+            var t := (-qb - sqrt(disc)) / (2.0 * qa)
+            if t >= 0.0:
+                var y := o.y + d.y * t
+                if y >= a.y and y <= b.y:
+                    best = t
+    for cap in [a, b]:
+        var t := _ray_sphere(o, d, cap, r)
+        if t >= 0.0 and (best < 0.0 or t < best):
+            best = t
+    return best
 
 
 # ---- events: server side -----------------------------------------------------------------------

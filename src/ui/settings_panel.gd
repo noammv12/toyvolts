@@ -22,6 +22,7 @@ var _volume_slider: HSlider
 var _volume_label: Label
 var _gpu_label: Label
 var _syncing := false
+var _double_zoom: CheckButton
 var _main: VBoxContainer
 var _controls: VBoxContainer
 var _bind_buttons := {}       ## action -> Button
@@ -153,6 +154,12 @@ func _build() -> void:
     keys_note.add_theme_font_size_override("font_size", 13)
     keys_note.modulate = Color(1, 1, 1, 0.55)
     krow.add_child(keys_note)
+    _double_zoom = CheckButton.new()
+    _double_zoom.text = "Sniper double zoom (8x): RMB cycles 4x, 8x, off"
+    _double_zoom.toggled.connect(func(on: bool) -> void:
+        if not _syncing:
+            Game.set_sniper_double_zoom(on))
+    box.add_child(_double_zoom)
     var mrow := HBoxContainer.new()
     mrow.add_theme_constant_override("separation", 10)
     box.add_child(mrow)
@@ -368,6 +375,7 @@ func _sync() -> void:
     _scale_label.text = "%d%%%s" % [int(_scale_slider.value), "" if Game.render_scale >= 0.999 else "  " + upscaler]
     _vsync.button_pressed = Game.vsync
     _fullscreen.button_pressed = Game.fullscreen
+    _double_zoom.button_pressed = Game.sniper_double_zoom
     for cap in _cap_buttons:
         _cap_buttons[cap].button_pressed = cap == Game.fps_cap
     var t := inverse_lerp(SENS_MIN, SENS_MAX, Game.mouse_sensitivity)

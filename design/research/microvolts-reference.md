@@ -476,41 +476,57 @@ facts against the sourced findings above.
    on connecting hits (source: fantasysportsvideogames.blogspot.com). ToyVolts has one
    fixed melee-drawn double jump at 0.92x, no directional/360 variants, no debuff. Highest-
    impact gap since this tech defines skilled Microvolts play.
-2. **Grenade Launcher detonation mismatch**: source confirms grenades do **not** detonate
-   on player contact, only on wall/ceiling/floor hits triggering a fuse (source:
-   microvolts.fandom.com/wiki/Grenade_Launcher). ToyVolts detonates on player contact
-   *or* a 2.0s fuse — an un-sourced direct-hit-kills-instantly behavior.
-3. **Bazooka self-damage is undocumented/likely absent** (inference from total silence
+2. **Bazooka self-damage is undocumented/likely absent** (inference from total silence
    on both weapon pages) — ToyVolts' `self damage x0.5` and implied rocket-jump potential
    has no confirmed Microvolts precedent.
-4. **Swap-cancel breadth**: source says swap-cancel *"only works with Shotgun, Bazooka,
+3. **Swap-cancel breadth**: source says swap-cancel *"only works with Shotgun, Bazooka,
    and Grenade Launcher"*, and a Gatling swap exploit was deliberately disabled as OP
    (source: mvs.fandom.com/wiki/Tips_%26_Tricks). ToyVolts applies universal swap-cancel
    across all 7 weapons including Gatling and Sniper.
-5. **Sniper scope-stage mismatch**: most models are single-zoom; community actually
+4. **Sniper scope-stage mismatch**: most models are single-zoom; community actually
    prefers single-zoom over double ("gets in the way"). ToyVolts hard-codes an always-on
    two-stage zoom (FOV 18→9) — opposite the documented preference; "4x/8x" itself is
    unverified folklore.
-6. **Radar as permanent HUD vs. limited pickup**: source Radar is a time-limited item
+5. **Radar as permanent HUD vs. limited pickup**: source Radar is a time-limited item
    pickup, not a baseline minimap. ToyVolts has a permanent top-left radar always on —
    a different information-availability balance.
-7. **Crouch is missing**: source confirms a bound crouch key (L-CTRL), contrary to a
+6. **Crouch is missing**: source confirms a bound crouch key (L-CTRL), contrary to a
    "no crouch" assumption. ToyVolts has no crouch at all.
-8. **Gatling warm-up doesn't reset on airborne fire**: source resets spin-up on jump/fall
+7. **Gatling warm-up doesn't reset on airborne fire**: source resets spin-up on jump/fall
    while firing, penalizing airborne Gatling use; ToyVolts' 0.45s spin-up has no such interaction.
-9. **No weapon-variant/tuning system**: source has dozens of lettered stat-variants per
+8. **No weapon-variant/tuning system**: source has dozens of lettered stat-variants per
    slot plus a two-choice tuning system per weapon; ToyVolts has one fixed stat block —
    a large progression gap, lower priority than the combat-feel items above.
-10. **Missing modes**: ToyVolts lacks Item Match (kill-drop items) and Zombie Mode
+9. **Missing modes**: ToyVolts lacks Item Match (kill-drop items) and Zombie Mode
     (infection + ammo-capsule tension), both confirmed current/legacy staples with
     well-documented rules, plus Bomb Battle and legacy Close Combat/Boss Battle/Scrimmage/Arms Race.
-11. **No character roster or parts customization**: source has 9 named characters + a
+10. **No character roster or parts customization**: source has 9 named characters + a
     7-slot customization system + capsule gacha; ToyVolts has 4 generic KayKit skins,
     no shop — large gap, but already deferred to a "Later" milestone in the ToyVolts plan.
-12. **No room list/lobby flow**: mostly undocumented for the source game too (low-confidence
+11. **No room list/lobby flow**: mostly undocumented for the source game too (low-confidence
     gap), but the one concrete feature found — a **vote-kick system** open to any player
     including opposing team (source: mv-forum.masanggames.com topic 1714) — is worth a
     deliberate design decision either way. ToyVolts currently has no room list/browser at all.
+
+**Decisions and status after the v0.7 fidelity pass (2026-09-02, Noam's calls):**
+- Former gap "grenade contact detonation" deleted: grenades DO explode on a direct player hit
+  and otherwise bounce with a fuse, which is what ToyVolts already did.
+- Swap-cancel breadth (now gap 3): recovery-cancel only for shotgun, bazooka and grenade
+  launcher (`WeaponData.swap_cancel`); reload-cancel stays universal; the sniper keeps its
+  1.5 s recovery through swaps. Wave-step test unchanged (shotgun).
+- Sniper zoom (gap 4): single 4x zoom by default, "double zoom (8x)" is a Settings toggle
+  off by default; 0.15 s scope settle (a shot fired sooner does the unscoped 55); quickscope
+  after the settle stays possible; the scope HUD shows "settling".
+- Radar (gap 5): teammates and objectives always; enemies only for 1.5 s after they fire or
+  within 6 m; hidden while scoped. Bots unchanged.
+- Crouch (gap 6): L-Ctrl, 0.5x run speed, capsule 1.15 -> 0.8, head hitbox lowered, camera
+  rig down 0.45 m, procedural hips drop (no clip in the kit), no jump while crouched, stand
+  up only with headroom; bots crouch when hurt behind cover; replicated in the input and
+  snapshot flags.
+- Gatling (gap 7): the spin drops to 0 when the toy leaves the floor while firing.
+- Melee combo: the three light swings alternate (horizontal, upward, overhead); the third
+  does 1.5x with knockback and resets; the combo drops after 0.8 s idle.
+- Every rule has a headless test in tests/run_tests.gd.
 
 **Status after the 2026-09-02 session (v0.6)**: gap 1 partly closed - draw times are
 now per weapon (0.15-0.4 s), presses during a draw are buffered, and a frame-accurate test

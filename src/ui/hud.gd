@@ -136,8 +136,13 @@ class Overlay extends Control:
             draw_line(Vector2(c.x - 6, c.y + t), Vector2(c.x + 6, c.y + t), Color(0, 0, 0, 0.9), 1.5)
         draw_circle(c, 2.4, Color(1, 0.2, 0.2))
         var level := player.arsenal.scope_level
+        var settled := player.arsenal.scope_time >= Arsenal.SCOPE_SETTLE
         draw_string(ThemeDB.fallback_font, c + Vector2(r * 0.55, -r * 0.55), "%dx" % (4 if level == 1 else 8),
-            HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(1, 1, 1, 0.85))
+            HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(1, 1, 1, 0.85) if settled else Color(1, 0.6, 0.3, 0.9))
+        if not settled:
+            draw_string(ThemeDB.fallback_font, c + Vector2(r * 0.55, -r * 0.55 + 22), "settling", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 0.6, 0.3, 0.9))
+        elif Game.sniper_double_zoom:
+            draw_string(ThemeDB.fallback_font, c + Vector2(r * 0.55, -r * 0.55 + 22), "RMB: %s" % ("8x" if level == 1 else "off"), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 1, 1, 0.55))
 
     func _bar(pos: Vector2, sz: Vector2, t: float, col: Color) -> void:
         draw_rect(Rect2(pos, sz), Color(0, 0, 0, 0.6))
@@ -234,13 +239,30 @@ class Radar extends Control:
     var player: Character
     const R := 68.0
     const RANGE_M := 30.0
+    const ENEMY_NEAR := 6.0        ## enemies closer than this always show
+    const ENEMY_FIRE_MS := 1500    ## ... or for this long after they fire
 
     func _process(_d: float) -> void:
         queue_redraw()
 
+    ## Microvolts radar rules: teammates always; enemies only while they shoot or up close.
+    static func shows(viewer: Character, other: Character, now_msec: int) -> bool:
+        if other == null or other == viewer or not other.alive:
+            return false
+        var ally := viewer.team != 0 and other.team == viewer.team
+        if ally:
+            return true
+        var rel := other.global_position - viewer.global_position
+        if Vector2(rel.x, rel.z).length() <= ENEMY_NEAR:
+            return true
+        return now_msec - other.last_fire_msec <= ENEMY_FIRE_MS
+
     func _draw() -> void:
         if player == null:
             return
+        if player.arsenal.aiming and player.arsenal.data().scope_overlay:
+            return   # hidden while scoped
+        var now := Time.get_ticks_msec()
         var c := Vector2(R + 4, R + 4)
         draw_circle(c, R + 3, Color(0, 0, 0, 0.35))
         draw_circle(c, R, Color(0.08, 0.1, 0.14, 0.55))
@@ -253,7 +275,7 @@ class Radar extends Control:
         draw_string(ThemeDB.fallback_font, c + north * (R - 12) + Vector2(-4, 5), "N", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1, 1, 1, 0.5))
         for node in player.get_tree().get_nodes_in_group("characters"):
             var ch := node as Character
-            if ch == null or ch == player or not ch.alive or ch is TargetDummy and false:
+            if not shows(player, ch, now):
                 continue
             var rel := ch.global_position - player.global_position
             var flat := Vector2(rel.x, rel.z)

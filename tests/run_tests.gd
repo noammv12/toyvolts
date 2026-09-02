@@ -3,6 +3,7 @@ extends Node
 ## Run: tools/test.sh   (exit code 0 = green)
 
 const ARENA := "res://src/world/arena_greybox.tscn"
+const HudRadarProbe := preload("res://src/ui/hud.gd").Radar
 const TARGET_DUMMY: PackedScene = preload("res://src/world/target_dummy.tscn")
 
 var _fails := 0
@@ -17,6 +18,7 @@ func _ready() -> void:
     _test_net_codec()
     _test_net_interp()
     _test_net_input()
+    await _test_lag_comp()
     await _test_practice_scene()
     await _test_wave_step()
     await _test_match()
@@ -138,10 +140,12 @@ func _test_weapon_state() -> void:
 func _test_net_codec() -> void:
     var packet := {"seq": 70001, "yaw": 1.2345, "pitch": -0.5, "wish": Vector3(0.7071, 0.0, -0.7071),
         "trigger": true, "alt": false, "jump": true, "jump_seq": 7, "select_seq": 3, "select_a": 1,
-        "select_b": 3, "reload_seq": 9, "aim_origin": Vector3(1.5, 2.25, -3.0), "aim_dir": Vector3(0.0, 0.6, -0.8)}
+        "select_b": 3, "reload_seq": 9, "aim_origin": Vector3(1.5, 2.25, -3.0), "aim_dir": Vector3(0.0, 0.6, -0.8),
+        "crouch": true, "view_tick": 123456}
     var bytes := NetCodec.encode_input(packet)
     var back := NetCodec.decode_input(bytes)
-    _check("input packet is %d bytes" % bytes.size(), bytes.size() == 44)
+    _check("input packet is %d bytes" % bytes.size(), bytes.size() == 48)
+    _check("input packet carries the crouch flag and the view tick (%d)" % back.view_tick, back.crouch and back.view_tick == 123456)
     _check("input packet round-trips (seq, look, buttons, counters)", back.seq == 70001
         and is_equal_approx(back.yaw, 1.2345) and is_equal_approx(back.pitch, -0.5)
         and back.trigger and not back.alt and back.jump and back.jump_seq == 7
@@ -156,7 +160,7 @@ func _test_net_codec() -> void:
         toys.append({"net_id": [1, 82311, -2][i], "pos": Vector3(i, 0.5, -i * 3.0), "vel": Vector3(7, -2, 0),
             "yaw": 0.1 * i, "pitch": -0.2, "slot": 3, "hp": 61.4, "alive": true, "on_floor": i == 0,
             "carrying": i == 2, "scope": 2, "aiming": true, "clip": 3, "reserve": 12, "ack_seq": 4200 + i,
-            "jumps_used": 1})
+            "jumps_used": 1, "crouch": i == 1})
     var sb := NetCodec.encode_snapshot(9001, 123.5, toys)
     var snap := NetCodec.decode_snapshot(sb)
     _check("snapshot with 3 toys is %d bytes" % sb.size(), sb.size() == 9 + 3 * 47)
@@ -166,7 +170,7 @@ func _test_net_codec() -> void:
         ok = t.net_id == 82311 and t.pos.is_equal_approx(Vector3(1, 0.5, -3)) and t.vel.is_equal_approx(Vector3(7, -2, 0)) \
             and is_equal_approx(t.yaw, 0.1) and t.slot == 3 and t.hp == 62.0 and t.alive and not t.on_floor \
             and not t.carrying and t.scope == 2 and t.aiming and t.clip == 3 and t.reserve == 12 and t.ack_seq == 4201 \
-            and t.jumps_used == 1 and snap.toys[2].net_id == -2 and snap.toys[2].carrying and snap.toys[0].on_floor
+            and t.jumps_used == 1 and snap.toys[2].net_id == -2 and snap.toys[2].carrying and snap.toys[0].on_floor             and t.crouch and not snap.toys[0].crouch
     _check("snapshot round-trips (ids incl. negative bots, flags, ammo, ack)", ok)
 
 
@@ -243,6 +247,85 @@ func _test_net_input() -> void:
     ni.feed(c, 1.0 / 60.0)
     _check("net input: catches up two per tick when behind", ni.queue.size() == NetInput.MAX_QUEUE - 2)
     c.queue_free()
+    await get_tree().process_frame
+
+
+# ---- lag compensation: pose history ring, rewind cap, a rewound raycast ------------------
+
+func _test_lag_comp() -> void:
+    var h := NetHistory.new()
+    for t in range(1, 21):
+        h.record(t, Vector3(t, 0, 0), 0.1 * t, t % 2 == 0)
+    h.record(20, Vector3(99, 0, 0), 0.0, false)   # duplicate tick: ignored
+    _check("lag comp: history keeps the last %d ticks (%d..%d)" % [NetHistory.TICKS, h.oldest_tick(), h.newest_tick()],
+        h.size() == NetHistory.TICKS and h.oldest_tick() == 6 and h.newest_tick() == 20 and h.at(20).pos.x == 20.0)
+    _check("lag comp: a tick inside the ring returns that pose (tick 12 -> x %.0f, crouch %s)" % [h.at(12).pos.x, h.at(12).crouch],
+        h.at(12).pos.x == 12.0 and h.at(12).crouch and is_equal_approx(h.at(12).yaw, 1.2))
+    _check("lag comp: older than the ring clamps to the oldest, newer to the newest", h.at(2).tick == 6 and h.at(50).tick == 20)
+    _check("lag comp: the rewind is capped at %d ticks (200 ms)" % NetHistory.MAX_REWIND_TICKS,
+        NetHistory.rewind_tick(100, 130) == 118 and NetHistory.rewind_tick(125, 130) == 125 and NetHistory.rewind_tick(140, 130) == 130)
+    # a rewound raycast: the dummy moved 4 m since the tick the shooter saw; rewinding puts the
+    # hitbox back under the shot for the query, then restores it
+    var d := TARGET_DUMMY.instantiate() as Character
+    d.net_id = 77
+    add_child(d)
+    var shooter := TARGET_DUMMY.instantiate() as Character
+    shooter.net_id = 2
+    shooter.peer_id = 2
+    add_child(shooter)
+    await get_tree().physics_frame
+    await get_tree().physics_frame
+    var saved_role: int = Net.role
+    Net.role = Net.Role.HOST
+    Net.tick = 1000
+    Net.characters[77] = d
+    Net.characters[2] = shooter
+    d.global_position = Vector3(20, 0, 0)
+    shooter.global_position = Vector3(20, 0, 8)
+    await get_tree().physics_frame
+    Net.history_for(d).record(990, Vector3(20, 0, 0), 0.0, false)   # where the client saw it
+    d.global_position = Vector3(24, 0, 0)                            # where it is now
+    Net.history_for(d).record(1000, d.global_position, 0.0, false)
+    await get_tree().physics_frame
+    var space := get_viewport().world_3d.direct_space_state
+    var o := Vector3(20, 0.9, 8)
+    var dir := Vector3(0, 0, -1)
+    Net.tick = 1000   # the host clock keeps ticking while we await: pin it for the calls
+    var now_hit := Net.rewound_raycast(shooter, o, dir, 30.0, 1000, space)   # view = now: no rewind
+    Net.tick = 1000
+    var past_hit := Net.rewound_raycast(shooter, o, dir, 30.0, 990, space)   # view 10 ticks ago
+    _check("lag comp: judged at the current tick the shot at the old spot misses", now_hit.is_empty())
+    _check("lag comp: rewound %d ticks the same ray hits the toy where the client saw it (z %.1f)" % [Net.last_rewind_ticks, past_hit.position.z if past_hit else 99.0],
+        Net.last_rewind_ticks == 10 and not past_hit.is_empty() and past_hit.collider == d and past_hit.shape == 0 and absf(past_hit.position.z - 0.3) < 0.05)
+    var head := Net.rewound_raycast(shooter, Vector3(20, 1.4, 8), dir, 30.0, 990, space)
+    _check("lag comp: a ray at head height reports the head shape (shape %d)" % (head.shape if head else -1), head and head.shape == Character.HEAD_SHAPE_INDEX)
+    _check("lag comp: the toy itself never moved (x %.0f)" % d.global_position.x, d.global_position.x == 24.0)
+    Net.tick = 1000
+    Net.rewound_raycast(shooter, o, dir, 30.0, 900, space)
+    _check("lag comp: a view further back than 200 ms is clamped (%d ticks)" % Net.last_rewind_ticks, Net.last_rewind_ticks == NetHistory.MAX_REWIND_TICKS)
+    # world geometry still blocks a rewound shot: a wall between shooter and the past spot
+    var wall := StaticBody3D.new()
+    wall.collision_layer = Character.LAYER_WORLD
+    var ws := CollisionShape3D.new()
+    var wb := BoxShape3D.new()
+    wb.size = Vector3(4, 4, 0.5)
+    ws.shape = wb
+    wall.add_child(ws)
+    add_child(wall)
+    wall.global_position = Vector3(20, 1, 4)
+    await get_tree().physics_frame
+    await get_tree().physics_frame
+    Net.tick = 1000
+    var blocked := Net.rewound_raycast(shooter, o, dir, 30.0, 990, space)
+    _check("lag comp: a wall in front still blocks the rewound shot (hit %s)" % (blocked.collider.get_class() if blocked else "nothing"),
+        blocked and blocked.collider == wall)
+    wall.queue_free()
+    Net.characters.clear()
+    Net._histories.clear()
+    Net.role = saved_role
+    Net.tick = 0
+    d.queue_free()
+    shooter.queue_free()
     await get_tree().process_frame
 
 
@@ -358,7 +441,7 @@ func _test_practice_scene() -> void:
     await _aim_at(player, dummy.center())
     await _pull_trigger(player)
     _check("melee light hits for 20 (%.0f)" % (100.0 - dummy.hp), is_equal_approx(100.0 - dummy.hp, 20.0))
-    for i in 25:
+    for i in 60:
         await get_tree().physics_frame
     hp0 = dummy.hp
     await _hold(player, true)
@@ -406,18 +489,169 @@ func _test_practice_scene() -> void:
     await _pull_trigger(player)
     _check("unscoped sniper body hit does 55 (%.0f)" % (100.0 - dummy.hp), is_equal_approx(100.0 - dummy.hp, 55.0))
     await _reset(dummy)
+    while not player.arsenal.current().ready_to_fire():   # the 1.5 s recovery of the last shot
+        await get_tree().physics_frame
     player.arsenal.alt = true
     await get_tree().physics_frame
     await get_tree().physics_frame
     player.arsenal.alt = false
     await get_tree().physics_frame
     _check("RMB scopes in (level %d)" % player.arsenal.scope_level, player.arsenal.scope_level == 1 and player.arsenal.aiming)
+    # a shot inside the 0.15 s scope settle is a hip shot (55), even though the scope is up
+    await _aim_at(player, dummy.center())
+    _check("sniper: still settling after scoping in (%.2f s)" % player.arsenal.scope_time, player.arsenal.scope_time < Arsenal.SCOPE_SETTLE)
+    await _pull_trigger(player)
+    _check("sniper: a shot during the settle does the unscoped 55 (%.0f)" % (100.0 - dummy.hp), is_equal_approx(100.0 - dummy.hp, 55.0))
+    await _reset(dummy)
+    for i in 12:
+        await get_tree().physics_frame
+    _check("sniper: settled after 0.15 s (%.2f s)" % player.arsenal.scope_time, player.arsenal.scope_time >= Arsenal.SCOPE_SETTLE)
+    while not player.arsenal.current().ready_to_fire():
+        await get_tree().physics_frame
     await _aim_at(player, dummy.center())
     await _pull_trigger(player)
     _check("scoped sniper body shot is a one-shot kill (hp %.0f)" % dummy.hp, not dummy.alive)
+    # the sniper keeps its 1.5 s recovery through a swap (no recovery-cancel), unlike the shotgun
+    var sniper_cd: float = player.arsenal.states[3].cooldown
+    player.arsenal.select(1)
+    _check("sniper: recovery survives a swap (%.2f -> %.2f)" % [sniper_cd, player.arsenal.states[3].cooldown],
+        sniper_cd > 1.0 and player.arsenal.states[3].cooldown == sniper_cd)
+    player.arsenal.select(4)
+    await _wait_swap(player)
+    # single zoom by default: RMB again scopes OUT; with the double-zoom setting it goes to 8x
+    player.arsenal.alt = true
+    await get_tree().physics_frame
+    await get_tree().physics_frame
+    player.arsenal.alt = false
+    await get_tree().physics_frame
+    player.arsenal.alt = true
+    await get_tree().physics_frame
+    await get_tree().physics_frame
+    player.arsenal.alt = false
+    await get_tree().physics_frame
+    _check("sniper: single zoom by default (4x then off, level %d)" % player.arsenal.scope_level, player.arsenal.scope_level == 0)
+    Game.sniper_double_zoom = true
+    for i in 2:
+        player.arsenal.alt = true
+        await get_tree().physics_frame
+        await get_tree().physics_frame
+        player.arsenal.alt = false
+        await get_tree().physics_frame
+    _check("sniper: the double-zoom setting adds the 8x stage (level %d, fov %.0f)" % [player.arsenal.scope_level, player.arsenal.zoom_fov()],
+        player.arsenal.scope_level == 2 and is_equal_approx(player.arsenal.zoom_fov(), 9.0))
+    Game.sniper_double_zoom = false
     player.arsenal.scope_level = 0
     for i in 200:
         await get_tree().physics_frame
+
+    # gatling: the spin drops to zero the tick the toy leaves the floor while firing
+    player.arsenal.select(5)
+    await _wait_swap(player)
+    player.arsenal.trigger = true
+    for i in 40:
+        await get_tree().physics_frame
+    var spin_before: float = player.arsenal.states[4].spin
+    player.jump_pressed = true
+    for i in 3:
+        await get_tree().physics_frame
+    var spin_after: float = player.arsenal.states[4].spin
+    player.arsenal.trigger = false
+    _check("gatling: spin resets when leaving the floor while firing (%.2f -> %.2f)" % [spin_before, spin_after],
+        spin_before > 0.9 and spin_after < 0.15 and not player.is_on_floor())
+    for i in 90:
+        await get_tree().physics_frame
+
+    # melee combo: horizontal 20, upward 20, overhead 30 (1.5x, knockback), then it resets; 0.8 s idle resets too
+    await _reset(dummy)
+    player.arsenal.select(1)
+    await _wait_swap(player)
+    player.global_position = dummy.global_position + Vector3(0, 0, 1.3)
+    await _aim_at(player, dummy.center())
+    var combo_dmg: Array = []
+    for swing in 3:
+        var before := dummy.hp
+        await _pull_trigger(player)
+        combo_dmg.append(before - dummy.hp)
+        if swing < 2:
+            for i in 20:
+                await get_tree().physics_frame
+            dummy.velocity = Vector3.ZERO
+            dummy.global_position = dummy.spawn_home
+            player.global_position = dummy.global_position + Vector3(0, 0, 1.3)
+    _check("melee combo: 20, 20, then the overhead finisher 30 (%s)" % [combo_dmg],
+        combo_dmg.size() == 3 and is_equal_approx(combo_dmg[0], 20.0) and is_equal_approx(combo_dmg[1], 20.0) and is_equal_approx(combo_dmg[2], 30.0))
+    _check("melee combo: the finisher resets the chain (combo %d)" % player.arsenal.states[0].combo, player.arsenal.states[0].combo == 0)
+    for i in 20:
+        await get_tree().physics_frame
+    await _reset(dummy)
+    player.global_position = dummy.global_position + Vector3(0, 0, 1.3)
+    await _pull_trigger(player)
+    _check("melee combo: second chain starts at 1 (combo %d)" % player.arsenal.states[0].combo, player.arsenal.states[0].combo == 1)
+    for i in 60:   # a second of idling
+        await get_tree().physics_frame
+    _check("melee combo: drops after 0.8 s idle (combo %d)" % player.arsenal.states[0].combo, player.arsenal.states[0].combo == 0)
+
+    # radar rules: enemies show only within 6 m or for 1.5 s after firing; allies always
+    var now := Time.get_ticks_msec()
+    dummy.last_fire_msec = -100000
+    dummy.global_position = player.global_position + Vector3(0, 0, -20)
+    _check("radar: a silent enemy 20 m away is hidden", not HudRadarProbe.shows(player, dummy, now))
+    dummy.last_fire_msec = now
+    _check("radar: an enemy that just fired shows", HudRadarProbe.shows(player, dummy, now))
+    _check("radar: ... and is hidden again 1.5 s later", not HudRadarProbe.shows(player, dummy, now + 1600))
+    dummy.global_position = player.global_position + Vector3(0, 0, -4)
+    _check("radar: an enemy within 6 m shows", HudRadarProbe.shows(player, dummy, now + 9999))
+    player.team = 1
+    dummy.team = 1
+    dummy.global_position = player.global_position + Vector3(0, 0, -25)
+    _check("radar: a teammate always shows", HudRadarProbe.shows(player, dummy, now + 9999))
+    player.team = 0
+    dummy.team = 0
+    dummy.global_position = dummy.spawn_home
+
+    # crouch (L-Ctrl): half speed, low capsule + head, no jump, stand up only with headroom
+    await _reset(dummy)
+    player.arsenal.select(2)
+    await _wait_swap(player)
+    player.global_position = Vector3(-2, 0.3, 10)   # an open lane along -x in the greybox
+    for i in 30:
+        await get_tree().physics_frame
+    player.wish_dir = Vector3(-1, 0, 0)
+    for i in 40:
+        await get_tree().physics_frame
+    var run_speed := Vector2(player.velocity.x, player.velocity.z).length()
+    player.crouch_held = true
+    for i in 40:
+        await get_tree().physics_frame
+    var crouch_speed := Vector2(player.velocity.x, player.velocity.z).length()
+    var cap := player.get_node("Collision").shape as CapsuleShape3D
+    _check("crouch: half speed (%.1f -> %.1f m/s)" % [run_speed, crouch_speed], player.crouching
+        and absf(run_speed - 7.0) < 0.3 and absf(crouch_speed - 3.5) < 0.3)
+    _check("crouch: capsule 1.15 -> %.2f, head hitbox %.2f -> %.2f, eye lowered" % [cap.height, 1.4, player.get_node("Head").position.y],
+        is_equal_approx(cap.height, Character.CROUCH_HEIGHT) and player.get_node("Head").position.y < 1.2 and player.eye().y - player.global_position.y < 1.1)
+    player.wish_dir = Vector3.ZERO
+    player.jump_pressed = true
+    for i in 3:
+        await get_tree().physics_frame
+    _check("crouch: no jump while crouched (vy %.1f)" % player.velocity.y, player.is_on_floor() and player.velocity.y <= 0.1)
+    # a low ceiling 1.0 m above the floor: standing up must wait until we walk out from under it
+    var lid: StaticBody3D = arena._box(player.global_position + Vector3(0, 1.5, 0), Vector3(3, 0.3, 3), Color.WHITE)
+    for i in 3:
+        await get_tree().physics_frame
+    player.crouch_held = false
+    for i in 10:
+        await get_tree().physics_frame
+    _check("crouch: stays crouched under a low ceiling (headroom %s)" % player.has_headroom(), player.crouching and not player.has_headroom())
+    player.wish_dir = Vector3(-1, 0, 0)
+    for i in 70:
+        await get_tree().physics_frame
+    player.wish_dir = Vector3.ZERO
+    _check("crouch: stands up once clear of it (capsule %.2f)" % cap.height, not player.crouching and is_equal_approx(cap.height, Character.STAND_HEIGHT))
+    lid.queue_free()
+    for i in 30:
+        await get_tree().physics_frame
+    var hips_drop := player.figure.aim_modifier.crouch_drop
+    _check("crouch: procedural hips drop is wired (%.2f model units)" % hips_drop, hips_drop > 0.3 and player.figure.aim_modifier.crouch_target == 0.0)
 
     # death + respawn through the match controller
     await _reset(dummy)

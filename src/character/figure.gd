@@ -24,6 +24,8 @@ const ACTIONS := {
     "fire": "2H_Ranged_Shoot",
     "fire_1h": "1H_Ranged_Shoot",
     "melee_light": "1H_Melee_Attack_Slice_Horizontal",
+    "melee_up": "1H_Melee_Attack_Slice_Diagonal",
+    "melee_over": "1H_Melee_Attack_Chop",
     "melee_heavy": "2H_Melee_Attack_Chop",
     "reload": "2H_Ranged_Reload",
     "hit": "Hit_A",
@@ -41,8 +43,9 @@ var hand: BoneAttachment3D
 var grip: Node3D                ## weapon models go here; local -Z is the barrel direction
 var aim_modifier: AimModifier
 var mats: Array[ShaderMaterial] = []
-var hat: Node3D                 ## party hat on the head bone (party mode)
+var hat: Node3D                 ## party hat, posed from the head bone every frame (party mode)
 var ready_ok := false
+var _head_idx := -1
 
 var _loco := Vector2.ZERO
 var _air := 0.0
@@ -108,6 +111,12 @@ func set_pitch(pitch: float) -> void:
         aim_modifier.pitch = pitch
 
 
+## No KayKit crouch clip: the aim modifier drops the hips and leans the chest instead.
+func set_crouch(on: bool) -> void:
+    if aim_modifier:
+        aim_modifier.crouch_target = 1.0 if on else 0.0
+
+
 func set_flash(amount: float) -> void:
     if absf(amount - _flash_applied) < 0.002:
         return   # most frames: nothing to upload
@@ -154,24 +163,36 @@ func weapon_transform() -> Transform3D:
     return grip.global_transform if grip else global_transform
 
 
-## Party hat on the head bone (rebuilt by setup(): call again after changing the model).
+## Party hat (rebuilt by setup(): call again after changing the model). The KayKit head bone
+## sits at the neck and is animated with scale, so the hat is not parented to the bone: every
+## frame it is posed from the bone's orthonormalised world pose, HAT_UP metres up the bone.
+const HAT_UP := 0.86
+
 func add_hat(color: Color) -> Node3D:
     if not ready_ok or skeleton == null:
         return null
     if hat != null and is_instance_valid(hat):
         hat.queue_free()
-    var att := BoneAttachment3D.new()
-    att.name = "HatMount"
-    att.bone_name = "head"
-    skeleton.add_child(att)
-    hat = PartyHat.build(color)
-    # the head bone sits at the neck (0.92 m) and KayKit heads are huge (top ~2.1 m); the
-    # mount inherits the model + bone scale (~0.6), so local units are not metres
-    hat.scale = Vector3.ONE * 2.0
-    hat.position = Vector3(0, 1.42, 0.05)
-    hat.rotation = Vector3(deg_to_rad(-8.0), 0.0, deg_to_rad(12.0))
-    att.add_child(hat)
+    _head_idx = skeleton.find_bone("head")
+    hat = PartyHat.build(color, 0.62)
+    add_child(hat)
+    _pose_hat()
     return hat
+
+
+func _process(_delta: float) -> void:
+    if hat != null:
+        _pose_hat()
+
+
+func _pose_hat() -> void:
+    if hat == null or not is_instance_valid(hat) or _head_idx < 0 or skeleton == null:
+        return
+    var pose: Transform3D = skeleton.global_transform * skeleton.get_bone_global_pose(_head_idx)
+    var basis := pose.basis.orthonormalized()
+    var tilt := Basis(Vector3.FORWARD, deg_to_rad(-6.0)) * Basis(Vector3.RIGHT, deg_to_rad(-8.0))
+    var world := Transform3D(basis * tilt, pose.origin + basis.y * HAT_UP + basis.z * 0.03)
+    hat.transform = global_transform.affine_inverse() * world
 
 
 # ---- setup ----------------------------------------------------------------------

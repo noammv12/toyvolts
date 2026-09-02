@@ -11,7 +11,8 @@ var reload_left := 0.0      ## > 0 while reloading
 var spin := 0.0             ## 0..1 gatling barrel spin
 var heat := 0.0             ## 0..1, overheats at 1
 var overheated := false
-var combo := 0              ## melee light-attack combo index
+var combo := 0              ## melee light-attack combo index (0 horizontal, 1 upward, 2 overhead)
+var combo_left := 0.0       ## seconds until the combo drops back to the first swing
 
 
 func _init(weapon: WeaponData) -> void:
@@ -27,10 +28,16 @@ func refill() -> void:
     overheated = false
     spin = 0.0
     cooldown = 0.0
+    combo = 0
+    combo_left = 0.0
 
 
 func tick(delta: float, trigger_held: bool) -> void:
     cooldown = maxf(0.0, cooldown - delta)
+    if combo_left > 0.0:
+        combo_left -= delta
+        if combo_left <= 0.0:
+            combo = 0
     if reload_left > 0.0:
         reload_left -= delta
         if reload_left <= 0.0:

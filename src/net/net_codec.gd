@@ -3,9 +3,10 @@ extends RefCounted
 ## Byte packing for the two hot packets: a client's input tick (client -> server, 60 Hz) and the
 ## server's world snapshot (server -> clients, 60 Hz). Pure functions, unit-tested headless.
 ##
-## Input (44 bytes): seq u32, yaw f32, pitch f32, wish x/z i8 (x127), buttons u8
-## (1 trigger, 2 alt, 4 jump held), jump_seq u8, select_seq u8, select a/b u8 (0 = none),
-## reload_seq u8, aim origin f32 x3, aim dir f32 x3.
+## Input (48 bytes): seq u32, yaw f32, pitch f32, wish x/z i8 (x127), buttons u8
+## (1 trigger, 2 alt, 4 jump held, 8 crouch), jump_seq u8, select_seq u8, select a/b u8
+## (0 = none), reload_seq u8, aim origin f32 x3, aim dir f32 x3, view_tick u32 (the server
+## tick the client was rendering: lag compensation rewinds hitboxes to it).
 ## Snapshot: tick u32, time_left f32, count u8, then per toy (47 bytes): net_id i32,
 ## pos f32 x3, vel f32 x3, yaw f32, pitch f32, slot u8, hp u8, flags u8 (1 alive, 2 on floor,
 ## 4 carrying, 8|16 scope level, 32 aiming), clip u8, reserve u16, ack_seq u32, jumps_used u8.
@@ -13,12 +14,14 @@ extends RefCounted
 const FLAG_TRIGGER := 1
 const FLAG_ALT := 2
 const FLAG_JUMP := 4
+const FLAG_CROUCH := 8
 
 const SNAP_ALIVE := 1
 const SNAP_FLOOR := 2
 const SNAP_CARRYING := 4
 const SNAP_SCOPE_SHIFT := 3      ## bits 3-4
 const SNAP_AIMING := 32
+const SNAP_CROUCH := 64
 
 
 static func encode_input(i: Dictionary) -> PackedByteArray:
@@ -36,6 +39,8 @@ static func encode_input(i: Dictionary) -> PackedByteArray:
         flags |= FLAG_ALT
     if i.get("jump", false):
         flags |= FLAG_JUMP
+    if i.get("crouch", false):
+        flags |= FLAG_CROUCH
     b.put_u8(flags)
     b.put_u8(int(i.jump_seq) & 0xFF)
     b.put_u8(int(i.select_seq) & 0xFF)
@@ -46,11 +51,12 @@ static func encode_input(i: Dictionary) -> PackedByteArray:
     var d: Vector3 = i.aim_dir
     for v in [o.x, o.y, o.z, d.x, d.y, d.z]:
         b.put_float(v)
+    b.put_u32(int(i.get("view_tick", 0)))
     return b.data_array
 
 
 static func decode_input(bytes: PackedByteArray) -> Dictionary:
-    if bytes.size() < 44:
+    if bytes.size() < 48:
         return {}
     var b := StreamPeerBuffer.new()
     b.data_array = bytes
@@ -65,6 +71,7 @@ static func decode_input(bytes: PackedByteArray) -> Dictionary:
     out.trigger = (flags & FLAG_TRIGGER) != 0
     out.alt = (flags & FLAG_ALT) != 0
     out.jump = (flags & FLAG_JUMP) != 0
+    out.crouch = (flags & FLAG_CROUCH) != 0
     out.jump_seq = b.get_u8()
     out.select_seq = b.get_u8()
     out.select_a = b.get_u8()
@@ -72,6 +79,7 @@ static func decode_input(bytes: PackedByteArray) -> Dictionary:
     out.reload_seq = b.get_u8()
     out.aim_origin = Vector3(b.get_float(), b.get_float(), b.get_float())
     out.aim_dir = Vector3(b.get_float(), b.get_float(), b.get_float())
+    out.view_tick = b.get_u32()
     return out
 
 
@@ -100,6 +108,8 @@ static func encode_snapshot(tick: int, time_left: float, toys: Array) -> PackedB
         flags |= (clampi(int(t.scope), 0, 3) << SNAP_SCOPE_SHIFT)
         if t.aiming:
             flags |= SNAP_AIMING
+        if t.get("crouch", false):
+            flags |= SNAP_CROUCH
         b.put_u8(flags)
         b.put_u8(clampi(int(t.clip), 0, 255))
         b.put_u16(clampi(int(t.reserve), 0, 65535))
@@ -135,6 +145,7 @@ static func decode_snapshot(bytes: PackedByteArray) -> Dictionary:
         t.carrying = (flags & SNAP_CARRYING) != 0
         t.scope = (flags >> SNAP_SCOPE_SHIFT) & 3
         t.aiming = (flags & SNAP_AIMING) != 0
+        t.crouch = (flags & SNAP_CROUCH) != 0
         t.clip = b.get_u8()
         t.reserve = b.get_u16()
         t.ack_seq = b.get_u32()

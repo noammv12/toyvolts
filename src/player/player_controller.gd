@@ -28,6 +28,8 @@ var _pitch_node: Node3D
 var _spring_arm: SpringArm3D
 var _nav: NavigationAgent3D   ## smoke mode only
 var _cine_cam: Camera3D       ## party finale: an orbiting camera takes over for a while
+var _crouch_cam := 0.0        ## camera rig drop while crouched (eases)
+var _rig_y := 1.55
 var _cine_left := 0.0
 var _cine_t := 0.0
 var _cine_center := Vector3.ZERO
@@ -48,6 +50,7 @@ func _ready() -> void:
     character.controller = self
     character.add_to_group("local_player")
     _spring_arm.add_excluded_object(character.get_rid())
+    _rig_y = $CameraRig.position.y
     camera.add_child(PostFx.new())
     camera.current = true
     _noise.frequency = 2.0
@@ -126,12 +129,16 @@ func feed(c: Character, _delta: float) -> void:
             c.wish_dir = (Basis(Vector3.UP, c.yaw) * Vector3(input.x, 0.0, input.y)).limit_length(1.0)
             if Input.is_action_just_pressed("jump"):
                 c.jump_pressed = true
+            c.crouch_held = Input.is_action_pressed("crouch")
             c.arsenal.trigger = Input.is_action_pressed("fire")
             c.arsenal.alt = Input.is_action_pressed("alt_fire")
         else:
             c.wish_dir = Vector3.ZERO
+            c.crouch_held = false
             c.arsenal.trigger = false
             c.arsenal.alt = false
+    if Game.has_arg("crouch"):   # capture: hold the crouch
+        c.crouch_held = true
     # shots go where the crosshair points: a ray from the camera through screen centre, posed
     # with THIS tick's look (the body applies yaw right after feed; the rig would lag a tick)
     c.rotation.y = c.yaw
@@ -187,6 +194,8 @@ func _process(delta: float) -> void:
         arsenal.trigger = arsenal.data().auto or ((_frame - _autofire_frame) / 8) % 2 == 0
     _recoil = lerpf(_recoil, 0.0, minf(1.0, delta * 10.0))
     _trauma = maxf(0.0, _trauma - delta * 1.6)
+    _crouch_cam = lerpf(_crouch_cam, Character.CROUCH_CAMERA_DROP if character.crouching else 0.0, minf(1.0, delta * 12.0))
+    $CameraRig.position.y = _rig_y - _crouch_cam
     _dip = maxf(0.0, _dip - delta * 7.0)
     var shake := _trauma * _trauma
     var t := Time.get_ticks_msec() * 0.001

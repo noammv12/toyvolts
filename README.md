@@ -40,20 +40,30 @@ Reset to defaults. Saved under `[controls]` in `user://settings.cfg`. The weapon
 title hint show the bound key (bazooka on E shows "E" over slot 6).
 
 Skill notes, straight from Microvolts: fire, swap to melee, swap back and fire again beats
-the weapon's own fire interval (shotgun 0.4 s instead of 0.9 s). Draws are short (melee
+the weapon's own fire interval (shotgun 0.4 s instead of 0.9 s). That recovery-cancel works
+for the shotgun, bazooka and grenade launcher only (the sniper keeps its 1.5 s recovery
+through a swap); reload-cancel works with everything. Draws are short (melee
 0.15 s, rifle 0.2, shotgun 0.25, sniper / bazooka / launcher 0.3, gatling 0.4) and anything
 you press during a draw is remembered: fire, aim, a jump waiting for melee, or another
 weapon key (which retargets the draw at once). The wave-step works in one airtime: shotgun
 shot, jump, melee flick, air shot, melee, double jump, back to the shotgun, third shot, land
 (`tests/run_tests.gd` scripts exactly that at 60 Hz). A scoped sniper body shot is a one-shot
-kill; unscoped does 55. Melee runs 15% faster.
+kill; unscoped does 55, and so does a shot fired within 0.15 s of scoping in (the scope
+"settles"). The scope is a single 4x zoom; Settings can add the 8x stage. The gatling's
+spin drops to zero when you leave the floor while firing. Melee runs 15% faster and its
+light swings chain horizontal, upward, overhead: the third does 1.5x with knockback, and
+the chain drops after 0.8 s. Crouch (L-Ctrl) halves your speed, lowers the hitboxes and the
+camera, blocks jumping and only lets you stand where there is headroom. The radar always
+shows teammates and objectives; enemies appear for 1.5 s after they fire or within 6 m,
+and the radar hides while you are scoped.
 
 ## Online
 
 Title screen > **Online**: host a game (port 7777) or join `ip:port`; pick name and toy;
 the host picks map / mode / bots and presses START. Friends can join a running match. The
 host runs the whole simulation; your own toy is predicted locally so movement and swaps
-never wait for the network. Over the internet use Tailscale (zero configuration) or forward
+never wait for the network, and your hitscan shots are judged against the world you were
+seeing (the host rewinds everyone's hitboxes up to 200 ms). Over the internet use Tailscale (zero configuration) or forward
 UDP 7777: the exact steps for both sides are in `tools/NET.md`. Dedicated server:
 
 ```
@@ -82,8 +92,8 @@ times and quits), `--host` / `--join=ip:port` / `--server` with `--port=N` (onli
 ## Develop
 
 - `tools/import.sh` after adding scripts with `class_name` or new assets
-- `tools/test.sh` headless tests (155 checks: weapons, packets, interpolation, the wave-step at 60 Hz, modes, maps, the party room)
-- `tools/net_test.sh` two-process loopback smoke: headless host + client, handshake, spawns, a confirmed hit, a whole short match, the party room mirrored
+- `tools/test.sh` headless tests (198 checks: bindings, weapons, packets, interpolation, lag compensation, the wave-step at 60 Hz, crouch, combos, radar rules, modes, maps, the party room)
+- `tools/net_test.sh` two-process loopback smoke: headless host + client, handshake, spawns, a confirmed (lag-compensated) hit, a whole short match, the party room mirrored
 - `tools/shot.sh <name> [--mode=ffa|tdm|elim|ctb|party|practice] [--bots=N] [--map=diner|lalu_party] [--quality=low] [--frames=N] [--pos=x,y,z] [--yaw=deg] [--pitch=deg] [--orbit=deg] [--ui=pause|settings|lobby] [--party_finish]` renders one frame (or a comma list of frames) to `captures/`
 - `tools/synth_sfx.py` / `tools/synth_party.py` regenerate the procedural sounds (party: pops, squeaks, cheers, fireworks, the Happy Birthday chiptune loop)
 - `tools/bench.sh [low medium high]` frame-time table per preset; `GODOT_ARGS="--gpu-index 1"` to pick the iGPU

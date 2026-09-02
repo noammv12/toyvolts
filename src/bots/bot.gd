@@ -59,7 +59,7 @@ func _on_fired(d: WeaponData) -> void:
     shots_fired += 1
     # swap-cancel: a skilled toy flicks to melee after every semi-auto shot; the next think
     # tick draws the gun again with its recovery already gone (twice the fire rate)
-    if skill >= TRICK_SKILL and not d.auto and d.kind != WeaponData.Kind.MELEE:
+    if skill >= TRICK_SKILL and d.swap_cancel:
         arsenal.select(1)
         _think = minf(_think, 0.12)
 
@@ -109,6 +109,8 @@ func _brain(delta: float) -> void:
 
     var engaged := target != null and target.alive and _last_seen < 2.5
     var objective := _objective_point()
+    # hurt and out of the enemy's sight: duck behind whatever is between us (Microvolts crouch)
+    crouch_held = engaged and not sees and hp < 50.0 and _last_seen < 1.5 and is_on_floor()
     if engaged:
         var dist := global_position.distance_to(target.global_position)
         if ticked:

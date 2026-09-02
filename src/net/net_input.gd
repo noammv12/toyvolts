@@ -56,9 +56,11 @@ func _apply(c: Character, i: Dictionary) -> void:
         _reload_seq = int(i.reload_seq)
     c.yaw = i.yaw
     c.pitch = i.pitch
+    c.view_tick = int(i.get("view_tick", 0))
     c.set_aim_ray(i.aim_origin, i.aim_dir)
     if not c.alive:
         c.wish_dir = Vector3.ZERO
+        c.crouch_held = false
         c.arsenal.trigger = false
         c.arsenal.alt = false
         _jump_seq = int(i.jump_seq)
@@ -66,6 +68,7 @@ func _apply(c: Character, i: Dictionary) -> void:
         _reload_seq = int(i.reload_seq)
         return
     c.wish_dir = (i.wish as Vector3).limit_length(1.0)
+    c.crouch_held = i.get("crouch", false)
     c.arsenal.trigger = i.trigger
     c.arsenal.alt = i.alt
     if int(i.jump_seq) != _jump_seq:

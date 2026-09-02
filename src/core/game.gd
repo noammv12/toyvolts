@@ -39,6 +39,7 @@ var fps_cap := 0
 var fullscreen := false
 var volume := 1.0
 var gpu_index := 0          ## hybrid laptops: which adapter to render on (needs a relaunch)
+var sniper_double_zoom := false   ## Settings: the sniper scope cycles 4x -> 8x -> off instead of 4x -> off
 var gpu_name := ""          ## adapter name seen when gpu_index was chosen
 
 var base_time_scale := 1.0
@@ -206,6 +207,7 @@ func load_settings() -> void:
     gpu_index = cfg.get_value("graphics", "gpu_index", gpu_index)
     gpu_name = cfg.get_value("graphics", "gpu_name", gpu_name)
     InputSetup.read_from(cfg)   # [controls]: key bindings, applied to the InputMap now
+    sniper_double_zoom = cfg.get_value("gameplay", "sniper_double_zoom", sniper_double_zoom)
     quality_auto = cfg.get_value("graphics", "auto", true)
     quality_probed = cfg.get_value("graphics", "probed", false)
     var saved_quality: String = cfg.get_value("graphics", "quality", "")
@@ -240,6 +242,7 @@ func save_settings() -> void:
     cfg.set_value("display", "fps_cap", fps_cap)
     cfg.set_value("display", "fullscreen", fullscreen)
     cfg.set_value("audio", "volume", volume)
+    cfg.set_value("gameplay", "sniper_double_zoom", sniper_double_zoom)
     InputSetup.write_to(cfg)
     cfg.save(SETTINGS_PATH)
 
@@ -296,6 +299,12 @@ func set_display(new_vsync: bool, new_cap: int, new_fullscreen: bool) -> void:
 func set_volume(v: float) -> void:
     volume = clampf(v, 0.0, 1.0)
     apply_display()
+    save_settings()
+    settings_changed.emit()
+
+
+func set_sniper_double_zoom(on: bool) -> void:
+    sniper_double_zoom = on
     save_settings()
     settings_changed.emit()
 

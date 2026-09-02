@@ -18,6 +18,10 @@ const LAYER_CHARACTER := 2
 const LAYER_TARGET := 4      ## shootable props (balloons, pinata, ribbons): guns hit them, bodies walk through
 const PARTY_HOP := 7.0       ## party mode: a hit makes the toy hop and cheer instead of hurting it
 const AUTO_BOUNCE := 5.5     ## bouncy castle: landing inside bounces you again
+const STAND_HEIGHT := 1.15   ## body capsule height standing / crouched (Microvolts L-Ctrl crouch)
+const CROUCH_HEIGHT := 0.8
+const CROUCH_SPEED := 0.5    ## run speed multiplier while crouched
+const CROUCH_CAMERA_DROP := 0.45
 const SPAWN_PROTECTION := 2.0
 const DEATH_HIDE_DELAY := 1.1
 const JUMP_BUFFER := 0.15    ## seconds a mid-air jump press waits for a jump to become available
@@ -44,6 +48,7 @@ var captures := 0            ## Capture the Battery deliveries
 var carrying: Battery = null
 var spawn_home := Vector3.ZERO
 var last_hit_weapon := ""
+var last_fire_msec := -100000   ## the radar shows enemies for a moment after they fire
 var respawn_at_msec := 0
 var net_id := 0             ## unique per match: humans = peer id, bots/dummies = 1000+
 var peer_id := 0            ## multiplayer peer that owns this toy (0 = server-side bot/dummy)
@@ -63,6 +68,9 @@ var yaw := 0.0
 var pitch := 0.0
 var wish_dir := Vector3.ZERO
 var jump_pressed := false
+var crouch_held := false
+var crouching := false      ## the body is low: half speed, lower hitboxes, no jump
+var view_tick := 0          ## server: the tick this remote human was rendering (lag compensation)
 
 var _jumps_used := 0        ## jumps since the last floor contact (max_jumps() can change mid-air)
 var _was_on_floor := false
@@ -79,6 +87,8 @@ var _step_t := 0.0
 @onready var weapon_holder: Node3D = $WeaponHolder
 @onready var figure: Figure = $Figure
 @onready var battery_mount: Node3D = $BatteryMount
+@onready var _body_shape: CollisionShape3D = $Collision
+@onready var _head_shape: CollisionShape3D = $Head
 
 
 func _ready() -> void:
@@ -120,6 +130,8 @@ func _physics_process(delta: float) -> void:
         Net.puppet_step(self)
         rotation.y = yaw
         weapon_holder.rotation.x = pitch
+        if crouching != crouch_held:
+            _set_crouch(crouch_held)
         return
     if predicted:
         Net.client_before_simulate(self)
@@ -129,9 +141,12 @@ func _physics_process(delta: float) -> void:
     if not alive:
         velocity = Vector3.ZERO
         jump_pressed = false
+        if crouching:
+            _set_crouch(false)
         return
 
-    var wish := wish_dir * run_speed * arsenal.data().run_speed_mult * (0.9 if carrying != null else 1.0)
+    _update_crouch()
+    var wish := wish_dir * run_speed * arsenal.data().run_speed_mult * (0.9 if carrying != null else 1.0) * (CROUCH_SPEED if crouching else 1.0)
     var accel := ground_accel if is_on_floor() else air_accel
     if zone_push != Vector3.ZERO:
         accel = 6.0   # the slide is slippery: input barely steers, the push wins
@@ -170,6 +185,9 @@ func _physics_process(delta: float) -> void:
     _jump_buffer = maxf(0.0, _jump_buffer - delta)
     if jump_pressed and _jumps_used >= max_jumps() and not is_on_floor():
         _jump_buffer = JUMP_BUFFER
+    if crouching:
+        jump_pressed = false
+        _jump_buffer = 0.0
     if (jump_pressed or _jump_buffer > 0.0) and _jumps_used < max_jumps():
         var second := _jumps_used > 0
         velocity.y = jump_velocity * zone_jump_mult * (0.92 if second else 1.0)
@@ -209,11 +227,45 @@ func jumps_left() -> int:
 
 
 func center() -> Vector3:
-    return global_position + Vector3(0, 0.95, 0)
+    return global_position + Vector3(0, 0.65 if crouching else 0.95, 0)
 
 
 func eye() -> Vector3:
-    return global_position + Vector3(0, 1.45, 0)
+    return global_position + Vector3(0, 1.0 if crouching else 1.45, 0)
+
+
+# ---- crouch (L-Ctrl): half speed, capsule 1.15 -> 0.8, head hitbox lowered, no jump, stand up
+# only with headroom. The figure has no crouch clip, so the hips drop procedurally.
+
+func _update_crouch() -> void:
+    var want := crouch_held and is_on_floor()
+    if want and not crouching:
+        _set_crouch(true)
+    elif not want and crouching and has_headroom():
+        _set_crouch(false)
+
+
+func _set_crouch(on: bool) -> void:
+    crouching = on
+    var cap := _body_shape.shape as CapsuleShape3D
+    cap.height = CROUCH_HEIGHT if on else STAND_HEIGHT
+    _body_shape.position = Vector3(0, cap.height * 0.5, 0)
+    _head_shape.position = Vector3(0, 0.9 if on else 1.4, 0)   # crouched head top at 1.26 m
+    figure.set_crouch(on)
+
+
+## Room to stand: the full standing silhouette (body capsule + head, top at 1.76 m) must be
+## clear of world geometry. Starts above the floor's physics margin.
+func has_headroom() -> bool:
+    var cap := CapsuleShape3D.new()
+    cap.radius = 0.3
+    cap.height = 1.7
+    var q := PhysicsShapeQueryParameters3D.new()
+    q.shape = cap
+    q.transform = Transform3D(Basis.IDENTITY, global_position + Vector3(0, 0.12 + 0.85, 0))
+    q.collision_mask = LAYER_WORLD
+    q.exclude = [get_rid()]
+    return get_world_3d().direct_space_state.intersect_shape(q, 1).is_empty()
 
 
 func facing() -> Vector3:

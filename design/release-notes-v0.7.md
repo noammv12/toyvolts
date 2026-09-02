@@ -27,6 +27,38 @@ A present for Hila (Lalu) from Noam & Daniel: her own party room, first thing on
   finale and the reset), late joiners get the current state. Loopback-tested.
 - Runs on Low on an integrated GPU (`--quality=low` if the auto-detect picks too high).
 
+## Key bindings
+
+- Esc > Settings > **Key bindings...**: every action (move, jump, crouch, fire, aim, reload,
+  weapons 1-7, last / next / previous weapon, scoreboard, pause) with its key. Click a cell,
+  press a key or mouse button; Esc cancels; a key another action uses swaps the two; Reset to
+  defaults. Saved under `[controls]` in `user://settings.cfg` and applied at boot. The weapon
+  strip and the title hint show the bound key (bazooka on E shows "E" over slot 6).
+
+## Fidelity pass (from design/research/microvolts-reference.md)
+
+- Swap-cancel: the recovery-cancel works for the shotgun, bazooka and grenade launcher only;
+  reload-cancel stays universal; the sniper keeps its 1.5 s recovery through swaps.
+- Sniper: single 4x zoom by default, "double zoom (8x)" as a Settings toggle; a 0.15 s scope
+  settle (a shot fired sooner does the unscoped 55; the scope HUD says "settling").
+- Gatling: the spin drops to zero when the toy leaves the floor while firing.
+- Crouch on L-Ctrl: half speed, capsule 1.15 -> 0.8, head hitbox lowered, camera down 0.45 m,
+  a procedural hips drop (the kit has no crouch clip), no jump while crouched, stand up only
+  with headroom; bots crouch when hurt behind cover; replicated online.
+- Melee combo: the three light swings alternate horizontal, upward, overhead; the third does
+  1.5x with knockback and resets; the combo drops after 0.8 s idle.
+- Radar: teammates and objectives always; enemies only for 1.5 s after they fire or within
+  6 m; hidden while scoped.
+- Grenades keep exploding on a direct player hit (the research doc's gap 2 was wrong).
+
+## Lag compensation
+
+- The client's input packet carries the server tick it is rendering (the interpolation
+  clock). The host keeps 15 ticks of position / yaw / crouch history per toy and judges that
+  client's hitscan shots against the world it saw: world geometry as it is now, every other
+  toy where it stood at that tick (capped at 200 ms back). Shots land where you aimed over
+  Tailscale. Headless unit tests, the loopback test checks the host rewinds.
+
 ## Under the hood
 
 - World props can be shot: anything in the `shootable` group with `on_shot()` reacts to
@@ -34,7 +66,7 @@ A present for Hila (Lalu) from Noam & Daniel: her own party room, first thing on
   through (balloons, the pinata, gift bows).
 - `PartyZone` areas change movement locally on every peer (bounce / moon / slide), so
   prediction and the host agree without extra packets.
-- 155 headless checks (`tools/test.sh`, 23 new for the party), 23 loopback checks
-  (`tools/net_test.sh`, a third phase hosts the party and the client mirrors every prop).
+- 198 headless checks (`tools/test.sh`), 24 loopback checks (`tools/net_test.sh`: a third
+  phase hosts the party and the client mirrors every prop; the host rewinds the client's shot).
 - Debug: `--map=lalu_party --mode=party`, `--party_finish` (completes the checklist for
   finale captures), `--party_smoke` (the host works through the checklist by itself).

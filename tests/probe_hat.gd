@@ -22,8 +22,8 @@ func _ready() -> void:
     print("head axes world: x %s y %s z %s" % [b.x.normalized().snapped(Vector3(0.01,0.01,0.01)), b.y.normalized().snapped(Vector3(0.01,0.01,0.01)), b.z.normalized().snapped(Vector3(0.01,0.01,0.01))])
     print("skeleton scale %s, model scale %s" % [sk.global_transform.basis.get_scale(), f.model.scale])
     var hat: Node3D = f.hat
-    print("hat rel %s, mount rel %s, hat global scale %s" % [(hat.global_position - p.global_position).snapped(Vector3(0.01,0.01,0.01)),
-        (hat.get_parent().global_position - p.global_position).snapped(Vector3(0.01,0.01,0.01)), hat.global_transform.basis.get_scale()])
+    print("hat rel %s, hat global scale %s, hat up axis %s" % [(hat.global_position - p.global_position).snapped(Vector3(0.01,0.01,0.01)),
+        hat.global_transform.basis.get_scale(), hat.global_transform.basis.y.snapped(Vector3(0.01,0.01,0.01))])
     var names := PackedStringArray()
     for i in sk.get_bone_count():
         names.append(sk.get_bone_name(i))

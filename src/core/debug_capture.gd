@@ -157,6 +157,11 @@ func _capture(path: String, frames_spec: String) -> void:
         var who := Game.local_player()
         if who != null and who.controller != null:
             print("[capture] player at %s  camera at %s" % [who.global_position, who.controller.camera.global_position])
+        if who != null and who.figure.hat != null:
+            var sk := who.figure.skeleton
+            var head := sk.global_transform * sk.get_bone_global_pose(sk.find_bone("head"))
+            print("[capture] hat rel %s (head bone rel %s, figure rel %s)" % [(who.figure.hat.global_position - who.global_position).snapped(Vector3(0.01, 0.01, 0.01)),
+                (head.origin - who.global_position).snapped(Vector3(0.01, 0.01, 0.01)), (who.figure.global_position - who.global_position).snapped(Vector3(0.01, 0.01, 0.01))])
         var cam := get_viewport().get_camera_3d()
         if cam != null:
             print("[capture] active camera %s at %s looking %s" % [cam.name, cam.global_position, -cam.global_transform.basis.z])

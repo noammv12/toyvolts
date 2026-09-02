@@ -10,12 +10,16 @@ var head_weight := 0.45
 var arm_lift_target := 0.0       ## radians both upper arms are raised while holding a gun
 var head_scale := 0.8            ## KayKit heads are chibi-sized; shrink toward action-figure proportions
 var chest_twist_target := 0.0    ## radians the torso turns so a held gun sits beside the body, not behind the head
+var crouch_target := 0.0         ## 0..1: hips drop + forward lean (procedural crouch, no clip in the kit)
+var crouch_drop := 0.42          ## model units the hips sink at full crouch (x0.76 = 0.32 m)
+var _crouch := 0.0
 var _chest_twist := 0.0
 var up_axis := Vector3.UP
 var _arm_lift := 0.0
 
 var _chest := -1
 var _head := -1
+var _hips := -1
 var _arms: Array[int] = []
 
 
@@ -24,6 +28,7 @@ func _ready() -> void:
     if sk:
         _chest = sk.find_bone("chest")
         _head = sk.find_bone("head")
+        _hips = sk.find_bone("hips")
         for b in ["upperarm.l", "upperarm.r"]:
             var idx := sk.find_bone(b)
             if idx >= 0:
@@ -36,6 +41,10 @@ func _process_modification() -> void:
         return
     _arm_lift = lerpf(_arm_lift, arm_lift_target, 0.15)
     _chest_twist = lerpf(_chest_twist, chest_twist_target, 0.15)
+    _crouch = lerpf(_crouch, crouch_target, 0.2)
+    if _hips >= 0 and _crouch > 0.001:
+        sk.set_bone_pose_position(_hips, sk.get_bone_pose_position(_hips) + Vector3(0, -crouch_drop * _crouch, 0))
+        _rotate_about_side(sk, _chest, -0.35 * _crouch)
     if _head >= 0 and head_scale != 1.0:
         sk.set_bone_pose_scale(_head, Vector3.ONE * head_scale)
     if absf(_chest_twist) > 0.001:

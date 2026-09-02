@@ -20,6 +20,10 @@ const READY_EPS := 0.0005    ## draw countdown snaps to 0 below this (60 Hz floa
 const LOWER_TIME := 0.07     ## the outgoing weapon drops for this long before the new one rises
 const ARC_TILT_DEG := 65.0   ## how far the muzzle points down at the bottom of the arc
 const ARC_DROP := 0.32       ## metres the model sits below the grip at the bottom of the arc
+const SCOPE_SETTLE := 0.15   ## sniper: a shot fired sooner than this after scoping in is an unscoped shot
+const COMBO_WINDOW := 0.8    ## melee: idle seconds before the three-swing combo drops
+const COMBO_FINISHER := 1.5  ## damage multiplier of the third (overhead) swing
+const COMBO_SWINGS := ["melee_light", "melee_up", "melee_over"]
 
 static var spread_scale := 1.0   ## tests set 0 for deterministic shots
 
@@ -32,9 +36,11 @@ var swap_left := 0.0
 var trigger := false
 var alt := false
 var aiming := false
-var scope_level := 0             ## sniper: 0 off, 1 = zoom_fov, 2 = zoom_fov / 2
+var scope_level := 0             ## sniper: 0 off, 1 = zoom_fov (4x), 2 = zoom_fov / 2 (8x, Settings toggle)
+var scope_time := 0.0            ## seconds since scoping in (the shot is unscoped until SCOPE_SETTLE)
 
 var _trigger_was := false
+var _spin_floor := true          ## gatling: was on the floor last tick (spin resets on leaving it while firing)
 var _alt_was := false
 var _buffer_fire := false        ## trigger pressed during the draw: fires the tick the draw ends
 var _buffer_alt := false
@@ -69,8 +75,9 @@ func data() -> WeaponData:
 func select(new_slot: int) -> void:
     if new_slot < 1 or new_slot > 7 or new_slot == slot:
         return
-    current().cancel_reload()   # swap-cancel: reload AND recovery are dropped
-    current().cooldown = 0.0    # (Microvolts: fire, swap out, swap back = faster than the fire interval)
+    current().cancel_reload()   # reload-cancel is universal
+    if data().swap_cancel:      # recovery-cancel only for shotgun / bazooka / launcher (Microvolts);
+        current().cooldown = 0.0   # the sniper keeps its 1.5 s recovery through a swap
     Game.trace("select:%d" % new_slot)
     _outgoing = slot if swap_left <= 0.0 else -1   # mid-draw retarget: nothing to lower
     previous_slot = slot
@@ -78,6 +85,7 @@ func select(new_slot: int) -> void:
     swap_left = data().swap_time
     aiming = false
     scope_level = 0
+    scope_time = 0.0
     _buffer_fire = false   # presses belonged to the draw we just abandoned
     _buffer_alt = false
     _show_model(slot)
@@ -254,10 +262,13 @@ func _physics_process(delta: float) -> void:
     if d.scope_overlay:
         # quickscope: scope in the last frames of the draw, or the tick it completes when buffered
         if (alt_edge and drawing and swap_left <= 0.12) or alt_press:
-            scope_level = (scope_level + 1) % 3
+            scope_level = (scope_level + 1) % (3 if Game.sniper_double_zoom else 2)
+            scope_time = 0.0
             Sfx.play("weapon_change", character.center(), -6.0, 0.0)
             _buffer_alt = false
         aiming = scope_level > 0
+        if aiming:
+            scope_time += delta
     else:
         aiming = alt and d.zoom_fov > 0.0 and not drawing
 
@@ -275,6 +286,12 @@ func _physics_process(delta: float) -> void:
             _melee(s, d.heavy_damage, d.heavy_interval, true)
         if d.spin_up > 0.0:
             var spinning := trigger and not s.overheated
+            # Microvolts: the barrels stop dead when the toy leaves the floor while firing
+            var on_floor := character.grounded()
+            if trigger and _spin_floor and not on_floor and s.spin > 0.0:
+                s.spin = 0.0
+                _spin_was = false
+            _spin_floor = on_floor
             if spinning and not _spin_was:
                 Sfx.play("gatling_spin", character.center())
             if s.overheated and s.heat >= 0.999 and not _spin_was:
@@ -298,6 +315,7 @@ func _fire(s: WeaponState) -> void:
             s.consume_shot()
             _fire_projectile(d)
             _recoil_model()
+    character.last_fire_msec = Time.get_ticks_msec()
     if d.kind != WeaponData.Kind.MELEE:
         Sfx.play(SHOT_SOUND.get(slot, "rifle_shot"), muzzle_position())
         if not d.auto:
@@ -312,16 +330,22 @@ func _fire_hitscan(d: WeaponData) -> void:
     var ray := character.get_aim_ray()
     var origin: Vector3 = ray.origin
     var base_dir: Vector3 = ray.dir
-    var scoped := aiming and d.scope_overlay
+    var scoped := aiming and d.scope_overlay and scope_time >= SCOPE_SETTLE   # too early = a hip shot
     var spread := 0.0 if scoped else d.spread_deg
     var dmg_scale := d.unscoped_damage_mult if (d.scope_overlay and not scoped) else 1.0
     var muzzle := muzzle_position()
     var space := character.get_world_3d().direct_space_state
+    # lag compensation: a remote human's shot is judged against the world they were rendering
+    var rewind := not cosmetic and character.peer_id > 1 and Net.is_server_role() and character.view_tick > 0
     for p in d.pellets:
         var dir := _apply_spread(base_dir, spread)
-        var query := PhysicsRayQueryParameters3D.create(
-            origin, origin + dir * d.range_m, MASK_HIT, [character.get_rid()])
-        var hit := space.intersect_ray(query)
+        var hit: Dictionary
+        if rewind:
+            hit = Net.rewound_raycast(character, origin, dir, d.range_m, character.view_tick, space)
+        else:
+            var query := PhysicsRayQueryParameters3D.create(
+                origin, origin + dir * d.range_m, MASK_HIT, [character.get_rid()])
+            hit = space.intersect_ray(query)
         var end := origin + dir * d.range_m
         if hit:
             end = hit.position
@@ -368,14 +392,26 @@ func _fire_projectile(d: WeaponData) -> void:
 
 func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
     s.cooldown = interval
-    s.combo = 0 if heavy else (s.combo + 1) % 3
+    # light swings alternate horizontal / upward / overhead; the third hits 1.5x with full
+    # knockback and resets; COMBO_WINDOW seconds without a swing also resets
+    var swing := 0
+    if heavy:
+        s.combo = 0
+        s.combo_left = 0.0
+    else:
+        swing = s.combo
+        s.combo = (s.combo + 1) % 3
+        s.combo_left = COMBO_WINDOW
+    var finisher := not heavy and swing == 2
+    if finisher:
+        dmg *= COMBO_FINISHER
     var d := s.data
     var origin := character.center()
     var forward: Vector3 = character.get_aim_ray().dir
     var flat := Vector3(forward.x, 0.0, forward.z).normalized()
     if character.is_on_floor():
         character.velocity += flat * (4.0 if heavy else 2.5)   # the little lunge every swing has
-    Sfx.play("melee_swing", origin, 0.0 if heavy else -3.0, 0.1)
+    Sfx.play("melee_swing", origin, 0.0 if heavy else (-1.0 if finisher else -3.0), 0.1)
     melee_swung.emit(heavy)
     for node in character.get_tree().get_nodes_in_group("characters"):
         var other := node as Character
@@ -387,8 +423,8 @@ func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
             continue
         if dist > 0.01 and rad_to_deg(forward.angle_to(to)) > d.melee_arc_deg:
             continue
-        var impulse := forward * (d.knockback if heavy else d.knockback * 0.3)
-        if heavy:
+        var impulse := forward * (d.knockback if (heavy or finisher) else d.knockback * 0.3)
+        if heavy or finisher:
             impulse += Vector3.UP * 2.5
         var result := other.take_damage(dmg, character, other.center(), impulse, false)
         if result.applied:
@@ -410,7 +446,7 @@ func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
     _swing_model(heavy)
     var f := _figure()
     if f:
-        f.play_action("melee_heavy" if heavy else "melee_light", interval)
+        f.play_action("melee_heavy" if heavy else COMBO_SWINGS[swing], interval)
     if not heavy:
         fired.emit(d)
 
