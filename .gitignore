@@ -2,7 +2,6 @@
 .godot/
 .import/
 *.import.tmp
-export_presets.cfg
 export/
 # OS / editor
 .DS_Store
