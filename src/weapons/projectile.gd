@@ -14,6 +14,8 @@ var velocity := Vector3.ZERO
 var age := 0.0
 var _exploded := false
 var _trail: Node3D
+var _fuse_light: OmniLight3D    ## grenades only: blinks faster as the fuse runs out
+var _fuse_next := 0.0
 
 
 func setup(weapon: WeaponData, owner_character: Character, initial_velocity: Vector3) -> void:
@@ -28,6 +30,13 @@ func _ready() -> void:
     _orient()
     var rocket := data.projectile_gravity <= 0.0
     _trail = Vfx.trail(self, rocket)
+    if data.fuse_time > 0.0:
+        _fuse_light = OmniLight3D.new()
+        _fuse_light.light_color = Color(1.0, 0.3, 0.2)
+        _fuse_light.light_energy = 0.0
+        _fuse_light.omni_range = 2.2
+        _fuse_light.shadow_enabled = false
+        add_child(_fuse_light)
     if rocket:
         Sfx.attach_loop("rocket_loop", self)
 
@@ -36,6 +45,7 @@ func _physics_process(delta: float) -> void:
     if _exploded:
         return
     age += delta
+    _tick_fuse(delta)
     if data.fuse_time > 0.0 and age >= data.fuse_time:
         _explode(global_position, Vector3.UP, null)
         return
@@ -67,6 +77,7 @@ func _physics_process(delta: float) -> void:
         velocity = vn * data.bounciness + vt * 0.75
         if bounced.length() > 2.0:
             Sfx.play("grenade_bounce", hit.position, clampf(bounced.length() - 8.0, -10.0, 0.0), 0.15)
+            Vfx.bounce_spark(hit.position, n)
         if velocity.length() < 0.6:
             velocity = Vector3.ZERO
         global_position = hit.position + n * 0.08
@@ -89,8 +100,26 @@ func _explode(pos: Vector3, normal: Vector3, direct_target: Character) -> void:
             shooter if is_instance_valid(shooter) else null, data.knockback, null)
     Vfx.explosion(center, data.splash_radius)
     Sfx.play("explosion", center, 0.0, 0.1)
+    var local := Game.local_player()
+    if local != null and local.alive:
+        var d := local.center().distance_to(center)
+        if d < data.splash_radius * 1.7:   # went off in your face: a white pop on screen
+            Vfx.screen_flash.emit(Color(1, 1, 1), clampf(1.0 - d / (data.splash_radius * 1.7), 0.15, 0.45), 0.22)
     Vfx.release_trail(_trail)
     queue_free()
+
+
+## The fuse blinks faster and faster: a red pulse plus a tick you can hear coming.
+func _tick_fuse(delta: float) -> void:
+    if _fuse_light == null:
+        return
+    var left := maxf(0.0, data.fuse_time - age)
+    _fuse_light.light_energy = maxf(0.0, _fuse_light.light_energy - delta * 14.0)
+    _fuse_next -= delta
+    if _fuse_next <= 0.0:
+        _fuse_next = clampf(left * 0.34, 0.07, 0.45)
+        _fuse_light.light_energy = 2.6
+        Sfx.play("fuse_tick", global_position, -4.0, 0.05)
 
 
 func _orient() -> void:

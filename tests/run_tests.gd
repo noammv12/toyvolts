@@ -857,6 +857,73 @@ func _test_animation() -> void:
     _check("the pieces return to the pool (%d free)" % Vfx._free["part"].size(),
         Vfx._free["part"].size() >= parts0 - 1)
 
+    # --- per-weapon effects --------------------------------------------------------
+    player.arsenal.select(5)
+    await _wait_swap(player)
+    var gat: WeaponState = player.arsenal.current()
+    gat.heat = 0.0
+    await get_tree().process_frame
+    var cold: float = player.arsenal._heat_applied
+    gat.heat = 0.9
+    await get_tree().process_frame
+    await get_tree().process_frame
+    _check("gatling barrels track the heat (%.2f -> %.2f)" % [cold, player.arsenal._heat_applied],
+        player.arsenal._heat_applied > 0.8)
+    var barrel: MeshInstance3D = null
+    var barrels := player.arsenal.current_model().get_node_or_null("Barrels")
+    if barrels != null and barrels.get_child_count() > 0:
+        barrel = barrels.get_child(0) as MeshInstance3D
+    var hot: Color = barrel.material_override.get_shader_parameter("albedo") if barrel else Color.BLACK
+    _check("hot barrels glow red (%s)" % str(hot), barrel != null and hot.r > 0.6 and hot.b < 0.3)
+    var fx3: int = Vfx.pool_stats().reused + Vfx.pool_stats().created
+    var nodes3 := Vfx.get_child_count()
+    for i in 30:
+        await get_tree().process_frame
+    _check("smoking barrels use pooled wisps (+%d uses, +%d nodes)" % [
+        Vfx.pool_stats().reused + Vfx.pool_stats().created - fx3, Vfx.get_child_count() - nodes3],
+        Vfx.pool_stats().reused + Vfx.pool_stats().created > fx3 and Vfx.get_child_count() - nodes3 <= 2)
+    gat.heat = 0.0
+    await get_tree().process_frame
+
+    # the scope glint is for everyone else, never for your own toy
+    player.arsenal.select(4)
+    await _wait_swap(player)
+    player.arsenal.scope_level = 1     # `aiming` is derived from this every physics tick
+    await get_tree().physics_frame
+    await get_tree().process_frame
+    var own_glint: Node3D = player.arsenal.current_model().get_node_or_null("Glint")
+    _check("your own scope glint stays off", own_glint != null and not own_glint.visible)
+    var other: Character = null
+    for node in get_tree().get_nodes_in_group("characters"):
+        var c := node as Character
+        if c != null and c != player and c.alive:
+            other = c
+            break
+    other.arsenal.select(4)
+    other.arsenal.swap_left = 0.0
+    other.arsenal.scope_level = 1
+    for i in 3:
+        await get_tree().physics_frame
+        await get_tree().process_frame
+    var their_glint: Node3D = other.arsenal.current_model().get_node_or_null("Glint")
+    _check("another toy's scope glints while it is scoped", their_glint != null and their_glint.visible)
+    other.arsenal.scope_level = 0
+    for i in 3:
+        await get_tree().physics_frame
+        await get_tree().process_frame
+    _check("...and stops the moment it unscopes", not their_glint.visible)
+
+    # a melee swing draws a pooled arc ribbon
+    player.arsenal.select(1)
+    await _wait_swap(player)
+    var arcs0: int = Vfx._free["arc"].size()
+    var nodes4 := Vfx.get_child_count()
+    player.arsenal._melee(player.arsenal.current(), 20.0, 0.35, false)
+    await get_tree().process_frame
+    _check("a melee swing draws a pooled arc (free %d -> %d, +%d nodes)" % [
+        arcs0, Vfx._free["arc"].size(), Vfx.get_child_count() - nodes4],
+        Vfx._free["arc"].size() == arcs0 - 1 and Vfx.get_child_count() - nodes4 == 0)
+
     # --- the death camera plumbing (the real trigger is skipped headless) -----------
     # (headless has no wall clock to wait on, so drive the two ends directly)
     player.controller.cinematic(player.global_position + Vector3(0, 0.35, 0), 3.0, "death")

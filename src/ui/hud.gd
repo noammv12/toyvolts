@@ -17,6 +17,7 @@ var _card: PanelContainer
 var _card_tween: Tween
 var _damage_flash: ColorRect
 var _kill_flash: ColorRect
+var _flash_tween: Tween
 var _hp_bar: HpBar
 var _ammo_label: Label
 var _weapon_label: Label
@@ -368,7 +369,18 @@ func _ready() -> void:
         _match.round_ended.connect(_on_round_ended)
         _match.announce.connect(_on_announce)
     Game.notice.connect(_on_notice)
+    Vfx.screen_flash.connect(flash)
     _bind_player(Game.local_player())
+
+
+## One full-screen wash (a sniper kill, a rocket going off in your face). The previous one is
+## killed first so overlapping blasts cannot stack into a white-out.
+func flash(color: Color, alpha: float, seconds: float) -> void:
+    if _flash_tween != null and _flash_tween.is_valid():
+        _flash_tween.kill()
+    _kill_flash.color = Color(color.r, color.g, color.b, alpha)
+    _flash_tween = _kill_flash.create_tween()
+    _flash_tween.tween_property(_kill_flash, "color:a", 0.0, seconds)
 
 
 ## The local toy spawns after the HUD (arena populate, or a server spawn online): bind lazily.
@@ -636,9 +648,7 @@ func _on_hit(killed: bool, headshot: bool) -> void:
         Sfx.play_ui("kill")
         if _player.arsenal.slot == 4:
             _popup("ONE SHOT" + ("  +  HEADSHOT" if headshot else ""), Color(1, 0.9, 0.45))
-            _kill_flash.color.a = 0.32
-            var tw := _kill_flash.create_tween()
-            tw.tween_property(_kill_flash, "color:a", 0.0, 0.3)
+            flash(Color(1, 1, 1), 0.32, 0.3)
         else:
             _popup("KILL" + ("  +  HEADSHOT" if headshot else ""), Color(1, 0.35, 0.3))
     else:

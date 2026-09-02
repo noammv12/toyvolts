@@ -21,7 +21,11 @@ const LOWER_TIME := 0.07     ## the outgoing weapon drops for this long before t
 const ARC_TILT_DEG := 65.0   ## how far the muzzle points down at the bottom of the arc
 const ARC_DROP := 0.32       ## metres the model sits below the grip at the bottom of the arc
 const SCOPE_SETTLE := 0.15
-const MAG_SLOTS := [2, 3, 4]     ## these guns drop a magazine when they reload   ## sniper: a shot fired sooner than this after scoping in is an unscoped shot
+const MAG_SLOTS := [2, 3, 4]     ## these guns drop a magazine when they reload
+const HEAT_SMOKE := 0.7          ## the gatling barrels start smoking above this
+const REMOTE_FIRE_MS := 200      ## a puppet counts as "holding the trigger" this long after a shot
+const BARREL_COOL := Color(0.14, 0.14, 0.17)
+const BARREL_HOT := Color(1.0, 0.28, 0.08)   ## sniper: a shot fired sooner than this after scoping in is an unscoped shot
 const COMBO_WINDOW := 0.8    ## melee: idle seconds before the three-swing combo drops
 const COMBO_FINISHER := 1.5  ## damage multiplier of the third (overhead) swing
 const COMBO_SWINGS := ["melee_light", "melee_up", "melee_over"]
@@ -48,6 +52,9 @@ var _buffer_alt := false
 var _models: Array[Node3D] = []
 var _model_tween: Tween
 var _spin_was := false
+var _heat_applied := -1.0    ## last heat pushed into the barrel materials (dead-banded)
+var _wisp_t := 0.0
+var _pump := 0.0             ## shotgun pump-action flourish, 1 = just fired
 var _outgoing := -1              ## slot whose model is still lowering (first LOWER_TIME of a draw)
 var _arc_active := false
 
@@ -59,6 +66,26 @@ func _ready() -> void:
     # the Figure (a sibling) builds its rig in the Character's _ready, after ours: defer
     _build_models.call_deferred()
     _show_model.call_deferred(slot)
+
+
+## Barrels glow red with heat, smoke above HEAT_SMOKE, and blow steam when they give up.
+## The weapon models give every part its own ShaderMaterial, so this touches nothing else.
+func _heat_barrels(barrels: Node3D, heat: float, delta: float) -> void:
+    if absf(heat - _heat_applied) > 0.02:
+        _heat_applied = heat
+        var hot := BARREL_COOL.lerp(BARREL_HOT, clampf(heat * 1.4, 0.0, 1.0))
+        for child in barrels.get_children():
+            var mi := child as MeshInstance3D
+            if mi != null and mi.material_override is ShaderMaterial:
+                mi.material_override.set_shader_parameter("albedo", hot)
+                mi.material_override.set_shader_parameter("flash", heat * 0.3)
+    if heat < HEAT_SMOKE:
+        _wisp_t = 0.0
+        return
+    _wisp_t -= delta
+    if _wisp_t <= 0.0:
+        _wisp_t = lerpf(0.22, 0.08, (heat - HEAT_SMOKE) / (1.0 - HEAT_SMOKE))
+        Vfx.smoke_wisp(muzzle_position(), character.facing())
 
 
 func _figure() -> Figure:
@@ -199,6 +226,17 @@ func _process(delta: float) -> void:
         var barrels := m.get_node_or_null("Barrels") as Node3D
         if barrels:
             barrels.rotation.z += delta * current().spin * 30.0
+            _heat_barrels(barrels, current().heat, delta)
+    if slot == 3:
+        _pump = maxf(0.0, _pump - delta * 4.5)
+        var pump := m.get_node_or_null("Pump") as Node3D
+        if pump:
+            # rack back and forward again over the long shotgun cooldown
+            pump.position.z = -0.5 + sin(_pump * PI) * 0.13
+    var glint := m.get_node_or_null("Glint") as Node3D
+    if glint:
+        # only while actually scoped, and only for everyone ELSE: your own scope is the overlay
+        glint.visible = aiming and not character.is_local()
     # draw arc: the old weapon drops for LOWER_TIME, then the new one rises into the aim pose
     var d := data()
     var arc := 0.0            # 0 = up and aimed, 1 = bottom of the arc
@@ -240,8 +278,13 @@ func _physics_process(delta: float) -> void:
     if character == null or not character.alive:
         trigger = false
         alt = false
+    # A puppet has no trigger of its own, but _ev_fired tells us when it shot: hold the
+    # barrels spinning for a moment after each remote shot so they do not stall between rounds.
+    var held := trigger
+    if cosmetic and character.puppet:
+        held = Time.get_ticks_msec() - character.last_fire_msec < REMOTE_FIRE_MS
     for i in states.size():
-        states[i].tick(delta, trigger and i == slot - 1)
+        states[i].tick(delta, held and i == slot - 1)
     if swap_left > 0.0:
         swap_left = maxf(0.0, swap_left - delta)
         if swap_left <= READY_EPS:
@@ -299,6 +342,8 @@ func _physics_process(delta: float) -> void:
             _spin_floor = on_floor
             if spinning and not _spin_was:
                 Sfx.play("gatling_spin", character.center())
+            if _spin_was and not spinning:
+                Sfx.play("spin_down", character.center(), -4.0)
             if s.overheated and s.heat >= 0.999 and not _spin_was:
                 Sfx.play("overheat", character.center())
             _spin_was = spinning
@@ -322,6 +367,8 @@ func _fire(s: WeaponState) -> void:
             _recoil_model()
     character.last_fire_msec = Time.get_ticks_msec()
     if d.kind != WeaponData.Kind.MELEE:
+        if slot == 3:
+            _pump = 1.0
         Sfx.play(SHOT_SOUND.get(slot, "rifle_shot"), muzzle_position())
         if not d.auto:
             var f := _figure()
@@ -371,7 +418,9 @@ func _fire_hitscan(d: WeaponData) -> void:
         Vfx.tracer(muzzle, end, Color(1.0, 0.85, 0.45) if slot != 4 else Color(0.6, 0.9, 1.0))
     var m := current_model()
     var right: Vector3 = m.global_transform.basis.x if m else Vector3.RIGHT
-    Vfx.muzzle_flash(muzzle, base_dir, FLASH_SIZE.get(slot, 0.7))
+    Vfx.muzzle_flash(muzzle, base_dir, FLASH_SIZE.get(slot, 0.7), slot != 5 or randf() < 0.35)
+    if slot == 3:   # the shotgun throws a real cloud, not just a flash
+        Vfx.puff(muzzle + base_dir * 0.35, Color(0.85, 0.82, 0.78, 0.5), 0.55, 0.25, 0.45)
     if slot != 5 or randf() < 0.5:
         Vfx.casing(muzzle - base_dir * 0.45, right)
 
@@ -393,6 +442,8 @@ func _fire_projectile(d: WeaponData) -> void:
     character.get_parent().add_child(p)
     p.global_position = muzzle
     Vfx.muzzle_flash(muzzle, dir, FLASH_SIZE.get(slot, 1.0))
+    if slot == 6:   # the bazooka blows exhaust out of the back of the tube
+        Vfx.backblast(muzzle - dir * 0.9 + Vector3(0, 0.1, 0), -dir)
 
 
 func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
@@ -417,6 +468,9 @@ func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
     if character.is_on_floor():
         character.velocity += flat * (4.0 if heavy else 2.5)   # the little lunge every swing has
     Sfx.play("melee_swing", origin, 0.0 if heavy else (-1.0 if finisher else -3.0), 0.1)
+    Vfx.swing_arc(origin, forward, 2 if heavy else swing)
+    if heavy:
+        Vfx.shockwave(character.global_position + flat * 1.1 + Vector3(0, 0.07, 0), 1.5)
     melee_swung.emit(heavy)
     for node in character.get_tree().get_nodes_in_group("characters"):
         var other := node as Character
@@ -436,6 +490,9 @@ func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
             hit_confirmed.emit(result.killed, false)
             Vfx.impact(other.center() - forward * 0.3, -forward, true)
             Sfx.play("melee_hit", other.center())
+            if finisher:   # the third swing lands with a star and a real camera kick
+                Vfx.star_pop(other.center(), Color(1.0, 0.9, 0.5), 1.1)
+                character.apply_kick(1.4)
     if not cosmetic:
         for node in character.get_tree().get_nodes_in_group("shootable"):
             var prop := node as Node3D

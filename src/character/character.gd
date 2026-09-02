@@ -476,7 +476,7 @@ func _die_visual() -> void:
     collision_layer = 0
     arsenal.trigger = false
     arsenal.alt = false
-    Vfx.fall_apart(self, body_color, crouching)
+    Vfx.fall_apart(global_position, body_color, crouching)
     figure.play_death()   # the fallback pose, under the parts, until the body is hidden
     _death_serial += 1
     var serial := _death_serial

@@ -8,10 +8,12 @@ extends Node
 ## Sprite3D.modulate so shared materials never get tweened. A shot allocates nothing.
 
 signal shake(pos: Vector3, strength: float)   ## the local player converts this to camera trauma
+signal screen_flash(color: Color, alpha: float, seconds: float)   ## the HUD paints this full-screen
 
 const MAX_DECALS := 96
 const POOL_SIZES := {
     "tracer": 24, "light": 8, "sprite": 48, "fireball": 4, "decal": 32, "mag": 6, "part": 36,
+    "arc": 6,
     "p_casing": 12, "p_impact": 16, "p_impact_char": 8, "p_debris": 4, "p_sparks": 4,
     "trail_rocket": 4, "trail_grenade": 4,
 }
@@ -26,6 +28,7 @@ var _star: ImageTexture
 var _part_meshes: Array[Mesh] = []
 var _part_shape: BoxShape3D
 var _part_phys: PhysicsMaterial
+var _arc_mesh: ArrayMesh
 var _streak_mesh: BoxMesh
 var _fireball_mesh: SphereMesh
 var _spark_mesh: BoxMesh
@@ -51,6 +54,7 @@ func _ready() -> void:
     _smoke = _smoke_tex()
     _star = _star_tex()
     _build_part_meshes()
+    _arc_mesh = _build_arc_mesh()
     _streak_mesh = BoxMesh.new()
     _streak_mesh.size = Vector3(0.07, 0.07, 1.0)
     _fireball_mesh = SphereMesh.new()
@@ -129,6 +133,13 @@ func warm_up() -> void:
     jump_puff(p)
     star_pop(p)
     assemble(p, Color(0.9, 0.5, 0.3))
+    swing_arc(p, Vector3.FORWARD, 0)
+    shockwave(p, 1.5)
+    smoke_wisp(p, Vector3.FORWARD)
+    steam_burst(p, Vector3.FORWARD)
+    backblast(p, Vector3.FORWARD)
+    bounce_spark(p, Vector3.UP)
+    fall_apart(p, Color(0.9, 0.5, 0.3))
     impact(p, Vector3.UP, false)
     impact(p, Vector3.UP, true)
     explosion(p, 2.0)
@@ -141,6 +152,12 @@ func warm_up() -> void:
         release_trail(t1)
         release_trail(t2)
         probe.queue_free())
+
+
+## warm_up() stages every effect far below the map so its pipelines compile before the first
+## real one; those rehearsals must stay silent.
+func _audible(pos: Vector3) -> bool:
+    return pos.y > -50.0
 
 
 func pool_stats() -> Dictionary:
@@ -171,13 +188,16 @@ func tracer(from: Vector3, to: Vector3, color := Color(1.0, 0.85, 0.45)) -> void
     _release_after(mi, "tracer", fly + 0.06)
 
 
-func muzzle_flash(pos: Vector3, dir := Vector3.ZERO, size := 0.7) -> void:
-    var light := _acquire("light") as OmniLight3D
-    light.light_color = Color(1.0, 0.75, 0.4)
-    light.light_energy = 6.0
-    light.omni_range = 5.0
-    light.global_position = pos
-    _release_after(light, "light", 0.07)
+## `lit` off for very fast weapons: at 18 rounds a second the flash lights overlap and wash
+## the shooter out completely.
+func muzzle_flash(pos: Vector3, dir := Vector3.ZERO, size := 0.7, lit := true) -> void:
+    if lit:
+        var light := _acquire("light") as OmniLight3D
+        light.light_color = Color(1.0, 0.75, 0.4)
+        light.light_energy = 6.0
+        light.omni_range = 5.0
+        light.global_position = pos
+        _release_after(light, "light", 0.07)
     var flash := _sprite(_radial, Color(1.0, 0.8, 0.45, 1.0), size * randf_range(0.8, 1.2), true)
     flash.global_position = pos + dir * 0.15
     flash.rotation.z = randf() * TAU
@@ -268,9 +288,9 @@ func impact(pos: Vector3, normal: Vector3, on_character: bool) -> void:
 ## The Microvolts signature: a killed toy bursts into plastic parts that bounce, settle and
 ## fade. Pieces sit on collision layer 0 / mask WORLD, so they never push a toy and shots pass
 ## straight through the pile. The piece count follows the quality preset.
-func fall_apart(c: Node3D, color: Color, crouched := false) -> void:
+func fall_apart(at: Vector3, color: Color, crouched := false) -> void:
     Game.trace("fall_apart")
-    var origin := c.global_position + Vector3(0, 0.55 if crouched else 0.8, 0)
+    var origin := at + Vector3(0, 0.55 if crouched else 0.8, 0)
     var count: int = Quality.preset(Game.quality).get("fx_parts", 10)
     var light_color := color.lightened(0.35)
     for i in count:
@@ -292,8 +312,9 @@ func fall_apart(c: Node3D, color: Color, crouched := false) -> void:
         tw.tween_property(mesh, "transparency", 1.0, PART_FADE)
         _release_after(part, "part", PART_LIFE)
     puff(origin, Color(1.0, 1.0, 1.0, 0.28), 0.7, 0.45, 0.4)
-    Sfx.play("toy_break", origin)
-    Sfx.play("part_clatter", origin, -2.0, 0.2)
+    if _audible(origin):
+        Sfx.play("toy_break", origin)
+        Sfx.play("part_clatter", origin, -2.0, 0.2)
 
 
 ## Respawn: a beam of light, a ring on the ground, and the toy pops back into existence.
@@ -317,7 +338,98 @@ func assemble(pos: Vector3, color: Color) -> void:
     rt.tween_property(ring, "modulate:a", 0.0, 0.4)
     _release_after(ring, "sprite", 0.45)
     jump_puff(pos + Vector3(0, 0.06, 0), 1.2)
-    Sfx.play("assemble", pos + Vector3(0, 0.8, 0))
+    if _audible(pos):
+        Sfx.play("assemble", pos + Vector3(0, 0.8, 0))
+
+
+## Melee: a ribbon that follows the blade through the swing. `kind` 0 = horizontal,
+## 1 = upward diagonal, 2 = overhead -- the same order as Arsenal.COMBO_SWINGS.
+func swing_arc(origin: Vector3, forward: Vector3, kind: int) -> void:
+    var mi := _acquire("arc") as MeshInstance3D
+    var flat := Vector3(forward.x, 0.0, forward.z)
+    if flat.length_squared() < 0.0001:
+        flat = Vector3.FORWARD
+    flat = flat.normalized()
+    # the ribbon is authored around its local +X, so turn it a further 90 degrees to centre
+    # the sweep on the way the toy is facing
+    var yaw := atan2(-flat.x, -flat.z) + PI * 0.5
+    match kind:
+        0:   # horizontal: the ribbon lies flat and sweeps across
+            mi.rotation = Vector3(-PI * 0.5, yaw, 0.0)
+        1:   # upward diagonal
+            mi.rotation = Vector3(0.0, yaw, deg_to_rad(-35.0))
+        _:   # overhead chop
+            mi.rotation = Vector3(0.0, yaw, deg_to_rad(80.0))
+    mi.global_position = origin + flat * 0.25
+    mi.transparency = 0.0
+    _tween(mi).tween_property(mi, "transparency", 1.0, 0.16)
+    _release_after(mi, "arc", 0.2)
+
+
+## A ring that races out along the floor (heavy melee, big landings).
+func shockwave(pos: Vector3, radius: float, color := Color(1.0, 0.95, 0.8)) -> void:
+    var ring := _sprite(_ring, Color(color, 0.85), radius * 0.7, true)
+    ring.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+    ring.material_override.billboard_mode = BaseMaterial3D.BILLBOARD_DISABLED
+    ring.global_position = pos
+    ring.rotation = Vector3(-PI * 0.5, randf() * TAU, 0.0)
+    var tw := _tween(ring).set_parallel(true)
+    tw.tween_property(ring, "scale", Vector3(2.6, 2.6, 1.0), 0.3).set_ease(Tween.EASE_OUT)
+    tw.tween_property(ring, "modulate:a", 0.0, 0.3)
+    _release_after(ring, "sprite", 0.35)
+
+
+## Gatling barrels above 70% heat: a thin wisp that curls up and away.
+func smoke_wisp(pos: Vector3, dir: Vector3) -> void:
+    var w := _sprite(_smoke, Color(0.72, 0.72, 0.75, 0.3), 0.22, false)
+    w.global_position = pos
+    w.rotation.z = randf() * TAU
+    var tw := _tween(w).set_parallel(true)
+    tw.tween_property(w, "scale", Vector3.ONE * 2.4, 0.7).set_ease(Tween.EASE_OUT)
+    tw.tween_property(w, "global_position", pos + dir * 0.3 + Vector3(0, 0.55, 0), 0.7)
+    tw.tween_property(w, "modulate:a", 0.0, 0.7).set_delay(0.1)
+    _release_after(w, "sprite", 0.75)
+
+
+## Overheat: a fast white burst of steam out of the barrels.
+func steam_burst(pos: Vector3, dir: Vector3) -> void:
+    for i in 4:
+        var s := _sprite(_smoke, Color(1.0, 1.0, 1.0, 0.55), 0.3, false)
+        s.global_position = pos
+        s.rotation.z = randf() * TAU
+        var away := (dir + Vector3(randf_range(-0.5, 0.5), randf_range(-0.2, 0.7), randf_range(-0.5, 0.5))).normalized()
+        var tw := _tween(s).set_parallel(true)
+        tw.tween_property(s, "scale", Vector3.ONE * 2.8, 0.55).set_ease(Tween.EASE_OUT)
+        tw.tween_property(s, "global_position", pos + away * 1.1, 0.55).set_ease(Tween.EASE_OUT)
+        tw.tween_property(s, "modulate:a", 0.0, 0.55).set_delay(0.08)
+        _release_after(s, "sprite", 0.6)
+    if _audible(pos):
+        Sfx.play("steam", pos)
+
+
+## Bazooka: the exhaust that blows out behind the shooter on launch.
+func backblast(pos: Vector3, dir: Vector3) -> void:
+    for i in 3:
+        var s := _sprite(_smoke, Color(0.78, 0.74, 0.7, 0.45), 0.4, false)
+        s.global_position = pos
+        s.rotation.z = randf() * TAU
+        var away := (dir + Vector3(randf_range(-0.35, 0.35), randf_range(-0.15, 0.35), randf_range(-0.35, 0.35))).normalized()
+        var tw := _tween(s).set_parallel(true)
+        tw.tween_property(s, "scale", Vector3.ONE * 3.0, 0.5).set_ease(Tween.EASE_OUT)
+        tw.tween_property(s, "global_position", pos + away * 1.5, 0.5).set_ease(Tween.EASE_OUT)
+        tw.tween_property(s, "modulate:a", 0.0, 0.5).set_delay(0.06)
+        _release_after(s, "sprite", 0.55)
+    if _audible(pos):
+        Sfx.play("backblast", pos, -2.0)
+
+
+## A grenade skipping off the floor: just the sparks, no decal (they bounce a lot).
+func bounce_spark(pos: Vector3, normal: Vector3) -> void:
+    var sparks := _acquire("p_impact") as GPUParticles3D
+    sparks.global_position = pos
+    var up := Vector3.UP if absf(normal.y) < 0.99 else Vector3.RIGHT
+    sparks.global_basis = Basis.looking_at(normal, up) * Basis(Vector3.RIGHT, deg_to_rad(-90.0))
+    _release_after(sparks, "p_impact", 0.5)
 
 
 ## Headshot / combo finisher: a four-point sparkle that pops and fades.
@@ -432,6 +544,12 @@ func _make(kind: String) -> Node:
             mat.rim = 1.0
             mat.rim_tint = 0.2
             mi.material_override = mat
+            mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+            n = mi
+        "arc":
+            var mi := MeshInstance3D.new()
+            mi.mesh = _arc_mesh
+            mi.material_override = _arc_mat()
             mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
             n = mi
         "part":
@@ -632,6 +750,53 @@ func _solid_mat(color: Color) -> StandardMaterial3D:
     return m
 
 
+## The blade trail is a thin unlit ribbon: additive, double-sided (it is seen from both sides
+## of the swing) and tinted by the vertex alpha baked into the mesh.
+func _arc_mat() -> StandardMaterial3D:
+    var key := ["arc"]
+    if _mats.has(key):
+        return _mats[key]
+    var m := StandardMaterial3D.new()
+    m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    m.cull_mode = BaseMaterial3D.CULL_DISABLED
+    m.vertex_color_use_as_albedo = true
+    m.albedo_color = Color(0.97, 0.99, 1.0)
+    m.disable_receive_shadows = true
+    _mats[key] = m
+    return m
+
+
+## A ribbon that sweeps an arc in the XY plane, facing +Z: inner edge opaque, outer edge
+## transparent, so it reads as a blade trail rather than a solid fan.
+func _build_arc_mesh() -> ArrayMesh:
+    var segments := 14
+    var span := deg_to_rad(115.0)
+    var verts := PackedVector3Array()
+    var cols := PackedColorArray()
+    for i in segments + 1:
+        var a := -span * 0.5 + span * float(i) / float(segments)
+        var c := cos(a)
+        var s := sin(a)
+        var edge := 1.0 - absf(float(i) / float(segments) * 2.0 - 1.0)   # fades at both ends
+        verts.append(Vector3(c * 0.55, s * 0.55, 0.0))
+        cols.append(Color(1, 1, 1, 0.95 * edge))
+        verts.append(Vector3(c * 2.0, s * 2.0, 0.0))
+        cols.append(Color(1, 1, 1, 0.0))
+    var idx := PackedInt32Array()
+    for i in segments:
+        var b := i * 2
+        idx.append_array([b, b + 1, b + 2, b + 2, b + 1, b + 3])
+    var arrays := []
+    arrays.resize(Mesh.ARRAY_MAX)
+    arrays[Mesh.ARRAY_VERTEX] = verts
+    arrays[Mesh.ARRAY_COLOR] = cols
+    arrays[Mesh.ARRAY_INDEX] = idx
+    var mesh := ArrayMesh.new()
+    mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+    return mesh
+
+
 func _build_part_meshes() -> void:
     var box := BoxMesh.new()
     box.size = Vector3(0.17, 0.17, 0.17)
@@ -659,6 +824,7 @@ func _glow_mat(color: Color, energy: float) -> StandardMaterial3D:
     var key := ["glow", color, energy]
     if _mats.has(key):
         return _mats[key]
+    # (vertex colours carry the arc ribbon's fade; harmless for the other users)
     var m := StandardMaterial3D.new()
     m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
     m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA

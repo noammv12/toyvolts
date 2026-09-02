@@ -2,7 +2,8 @@ class_name WeaponModels
 extends RefCounted
 ## Chunky two-tone toy weapons built from primitives (nerf-style: rounded plastic bodies,
 ## muzzle rings, magazines, scope glass). Local -Z is the muzzle direction, origin = grip.
-## A node named "Barrels" on the gatling is spun by the Arsenal while firing.
+## Parts the Arsenal animates are named: "Barrels" (gatling, spins and glows with heat),
+## "Pump" (shotgun, racks between shots), "Glint" (sniper, a scope flare other players see).
 
 const TOON: Shader = preload("res://shaders/toon.gdshader")
 const ORANGE := Color(0.98, 0.5, 0.16)
@@ -57,7 +58,7 @@ static func _shotgun(r: Node3D) -> void:
     _cyl(r, 0.036, 0.58, Vector3(-0.04, 0.05, -0.62), NAVY)
     _cyl(r, 0.058, 0.06, Vector3(0.04, 0.05, -0.88), YELLOW)             # muzzle rings
     _cyl(r, 0.058, 0.06, Vector3(-0.04, 0.05, -0.88), YELLOW)
-    _box(r, Vector3(0.12, 0.08, 0.2), Vector3(0, -0.04, -0.5), YELLOW)   # pump
+    _box(r, Vector3(0.12, 0.08, 0.2), Vector3(0, -0.04, -0.5), YELLOW).name = "Pump"
     _box(r, Vector3(0.09, 0.14, 0.3), Vector3(0, -0.02, 0.22), WOOD)     # stock
     _box(r, Vector3(0.06, 0.14, 0.07), Vector3(0, -0.11, 0.04), WOOD)    # grip
     _box(r, Vector3(0.05, 0.04, 0.05), Vector3(0, 0.12, -0.12), YELLOW)  # rear sight
@@ -77,6 +78,20 @@ static func _sniper(r: Node3D) -> void:
     _box(r, Vector3(0.05, 0.12, 0.06), Vector3(0, -0.11, -0.3), NAVY)    # magazine
     _cyl(r, 0.012, 0.28, Vector3(0.06, -0.12, -0.7), STEEL)              # bipod legs
     _cyl(r, 0.012, 0.28, Vector3(-0.06, -0.12, -0.7), STEEL)
+    # the scope flare other players catch when this toy is holding still and aiming at them
+    var glint := Sprite3D.new()
+    glint.name = "Glint"
+    glint.texture = Vfx._radial
+    glint.pixel_size = 0.55 / 64.0
+    glint.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+    glint.shaded = false
+    glint.transparent = true
+    glint.modulate = Color(0.75, 0.95, 1.0, 0.9)
+    glint.material_override = Vfx._additive_mat(Vfx._radial, Color(0.75, 0.95, 1.0))
+    glint.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+    glint.position = Vector3(0, 0.13, -0.42)
+    glint.visible = false
+    r.add_child(glint)
 
 
 static func _gatling(r: Node3D) -> void:
