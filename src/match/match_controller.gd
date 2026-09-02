@@ -1,12 +1,15 @@
 class_name MatchController
 extends Node
-## Match rules: modes (practice / ffa / tdm), respawns, kill feed, health vial drops,
-## scoring, time limit, match end and restart.
+## Match rules: modes (practice / ffa / tdm / elim), respawns, kill feed, health vial drops,
+## scoring, time limit, rounds (Elimination), match end and restart.
 
 signal kill_feed(text: String)
 signal match_ended(text: String)
+signal round_ended(text: String)
 
 const TEAM_NAMES := {1: "RED", 2: "BLUE"}
+const ELIM_ROUND_TIME := 90.0
+const ELIM_ROUNDS_TO_WIN := 5
 
 @export var respawn_delay := 3.0
 var mode := "practice"
@@ -16,6 +19,8 @@ var time_left := 480.0
 var active := true
 var winner_text := ""
 var spawn_points: Array[Vector3] = []
+var round_number := 1
+var round_active := true
 
 
 func _ready() -> void:
@@ -26,6 +31,9 @@ func _ready() -> void:
             score_limit = 20
         "tdm":
             score_limit = 30
+        "elim":
+            score_limit = ELIM_ROUNDS_TO_WIN
+            time_limit = ELIM_ROUND_TIME
         _:
             score_limit = 0
     time_left = time_limit
@@ -36,12 +44,15 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-    if not active or mode == "practice":
+    if not active or mode == "practice" or not round_active:
         return
     time_left -= delta
     if time_left <= 0.0:
         time_left = 0.0
-        _end_by_score()
+        if mode == "elim":
+            _end_round_by_time()
+        else:
+            _end_by_score()
 
 
 func _on_node_added(node: Node) -> void:
@@ -60,6 +71,10 @@ func _on_died(victim: Character, killer: Character) -> void:
     else:
         kill_feed.emit("%s fell apart" % victim.display_name)
     _drop_vial(victim.global_position)
+    if mode == "elim":
+        if active and round_active:
+            _check_round()
+        return
     victim.respawn_at_msec = Time.get_ticks_msec() + int(respawn_delay * 1000.0)
     _respawn_later(victim)
     if active:
@@ -120,7 +135,12 @@ func contestants() -> Array[Character]:
 
 func ranking() -> Array[Character]:
     var list := contestants()
+    var elim := mode == "elim"
     list.sort_custom(func(a: Character, b: Character) -> bool:
+        var sa := a.rounds_won if elim else a.kills
+        var sb := b.rounds_won if elim else b.kills
+        if sa != sb:
+            return sa > sb
         if a.kills != b.kills:
             return a.kills > b.kills
         return a.deaths < b.deaths)
@@ -130,9 +150,16 @@ func ranking() -> Array[Character]:
 func team_score(team: int) -> int:
     var total := 0
     for c in contestants():
-        if c.team == team:
-            total += c.kills
+        total += (c.rounds_won if mode == "elim" else c.kills) if c.team == team else 0
     return total
+
+
+func alive_count(team := 0) -> int:
+    var n := 0
+    for c in contestants():
+        if c.alive and (team == 0 or c.team == team):
+            n += 1
+    return n
 
 
 func status_line(viewer: Character) -> String:
@@ -146,6 +173,11 @@ func status_line(viewer: Character) -> String:
             return "FFA to %d   |   You %d   |   %s   |   %s" % [score_limit, viewer.kills, leader_text, clock]
         "tdm":
             return "RED %d  -  %d BLUE   |   to %d   |   %s" % [team_score(1), team_score(2), score_limit, clock]
+        "elim":
+            var lead := ranking()
+            var leader_text := "1st %s %d" % [lead[0].display_name, lead[0].rounds_won] if not lead.is_empty() else ""
+            return "ELIMINATION  round %d   |   You %d   |   %s   |   alive %d   |   %s" % [
+                round_number, viewer.rounds_won, leader_text, alive_count(), clock]
         _:
             return "Practice   |   %d kills" % viewer.kills
 
@@ -173,6 +205,51 @@ func _end_by_score() -> void:
         _end("RED TEAM WINS" if r > b else ("BLUE TEAM WINS" if b > r else "DRAW"))
 
 
+# ---- elimination rounds ----------------------------------------------------------
+
+func _check_round() -> void:
+    var alive: Array[Character] = []
+    for c in contestants():
+        if c.alive:
+            alive.append(c)
+    if alive.size() <= 1:
+        _end_round(alive[0] if alive.size() == 1 else null)
+
+
+func _end_round_by_time() -> void:
+    # most survivors' team, else nobody
+    var alive: Array[Character] = []
+    for c in contestants():
+        if c.alive:
+            alive.append(c)
+    _end_round(alive[0] if alive.size() == 1 else null)
+
+
+func _end_round(winner: Character) -> void:
+    if not round_active:
+        return
+    round_active = false
+    var text := "ROUND DRAW"
+    if winner != null:
+        winner.rounds_won += 1
+        text = "YOU WIN THE ROUND" if winner is Player else "%s WINS THE ROUND" % winner.display_name.to_upper()
+    round_ended.emit(text)
+    if winner != null and winner.rounds_won >= score_limit:
+        _end("YOU WIN" if winner is Player else "%s WINS" % winner.display_name.to_upper())
+        return
+    await get_tree().create_timer(3.0).timeout
+    if not active or not is_inside_tree():
+        return
+    round_number += 1
+    for node in get_tree().get_nodes_in_group("pickups"):
+        node.queue_free()
+    for c in contestants():
+        c.alive = false
+        respawn_now(c)
+    time_left = time_limit
+    round_active = true
+
+
 func _end(text: String) -> void:
     if not active:
         return
@@ -191,9 +268,12 @@ func restart() -> void:
     for c in contestants():
         c.kills = 0
         c.deaths = 0
+        c.rounds_won = 0
         c.alive = false
         respawn_now(c)
     time_left = time_limit
     winner_text = ""
+    round_number = 1
+    round_active = true
     active = true
     Game.match_active = true

@@ -131,15 +131,18 @@ func explosion(pos: Vector3, radius: float) -> void:
     sphere.radius = 1.0
     sphere.height = 2.0
     mi.mesh = sphere
-    var mat := _glow_mat(Color(1.0, 0.55, 0.15, 0.9), 3.0)
+    var mat := _glow_mat(Color(1.0, 0.6, 0.2, 0.8), 3.5)
+    mat.rim_enabled = true
+    mat.rim = 1.0
+    mat.rim_tint = 0.2
     mi.material_override = mat
     mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
     add_child(mi)
     mi.global_position = pos
-    mi.scale = Vector3.ONE * 0.25
+    mi.scale = Vector3.ONE * 0.2
     var tw := mi.create_tween().set_parallel(true)
-    tw.tween_property(mi, "scale", Vector3.ONE * radius * 0.9, 0.18).set_ease(Tween.EASE_OUT)
-    tw.tween_property(mat, "albedo_color:a", 0.0, 0.32)
+    tw.tween_property(mi, "scale", Vector3.ONE * radius * 0.6, 0.16).set_ease(Tween.EASE_OUT)
+    tw.tween_property(mat, "albedo_color:a", 0.0, 0.28)
     tw.chain().tween_callback(mi.queue_free)
     # shockwave ring
     var ring := _billboard(_ring, Color(1.0, 0.85, 0.6, 0.9), radius * 0.6, true)

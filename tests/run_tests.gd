@@ -15,6 +15,7 @@ func _ready() -> void:
     _test_weapon_state()
     await _test_practice_scene()
     await _test_match()
+    await _test_elimination()
     await _test_toy_room()
     print("\n%d checks, %d failed" % [_count, _fails])
     get_tree().quit(1 if _fails > 0 else 0)
@@ -289,6 +290,35 @@ func _test_toy_room() -> void:
             grounded += 1
     _check("bots stay inside the room (%d/%d)" % [grounded, bots.size()], grounded == bots.size())
     room.queue_free()
+    await get_tree().process_frame
+
+
+# ---- elimination rounds ------------------------------------------------------------
+
+func _test_elimination() -> void:
+    Game.mode = "elim"
+    Game.bot_count = 2
+    var arena: Node3D = (load(ARENA) as PackedScene).instantiate()
+    add_child(arena)
+    await get_tree().process_frame
+    var player := arena.get_node("Player") as Player
+    player.input_enabled = false
+    var m := arena.get_node("Match") as MatchController
+    _check("elimination round 1 active", m.mode == "elim" and m.round_active and m.round_number == 1)
+    Game.match_active = false   # freeze bots
+    await get_tree().physics_frame
+    Game.match_active = true
+    var bots := get_tree().get_nodes_in_group("bots")
+    var rounds := [0]
+    m.round_ended.connect(func(_t: String) -> void: rounds[0] += 1)
+    for b in bots:
+        b.take_damage(1000.0, player, b.center(), Vector3.ZERO, false)
+    _check("last toy standing ends the round", rounds[0] == 1 and player.rounds_won == 1 and not m.round_active)
+    _check("no respawn timer in elimination", bots[0].respawn_at_msec == 0)
+    for i in 220:
+        await get_tree().physics_frame
+    _check("round 2 starts with everyone alive", m.round_number == 2 and m.round_active and bots[0].alive and bots[1].alive)
+    arena.queue_free()
     await get_tree().process_frame
 
 

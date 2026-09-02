@@ -40,6 +40,10 @@ func _ready() -> void:
                 player.team = 1
                 player.set_color(TEAM_COLORS[1])
             _spawn_bots(Game.bot_count, true)
+        "elim":
+            if player:
+                player.team = 0
+            _spawn_bots(Game.bot_count, false)
         _:
             for pos in dummy_spots:
                 var d := DUMMY.instantiate() as Character

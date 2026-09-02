@@ -46,6 +46,29 @@ func set_mouse_captured(captured: bool) -> void:
     Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if captured else Input.MOUSE_MODE_VISIBLE
 
 
+const SETTINGS_PATH := "user://settings.cfg"
+
+
+func load_settings() -> void:
+    var cfg := ConfigFile.new()
+    if cfg.load(SETTINGS_PATH) != OK:
+        return
+    skin = cfg.get_value("player", "skin", skin)
+    mouse_sensitivity = cfg.get_value("player", "sensitivity", mouse_sensitivity)
+    if not has_arg("mode"):
+        mode = cfg.get_value("match", "mode", mode)
+        bot_count = cfg.get_value("match", "bots", bot_count)
+
+
+func save_settings() -> void:
+    var cfg := ConfigFile.new()
+    cfg.set_value("player", "skin", skin)
+    cfg.set_value("player", "sensitivity", mouse_sensitivity)
+    cfg.set_value("match", "mode", mode)
+    cfg.set_value("match", "bots", bot_count)
+    cfg.save(SETTINGS_PATH)
+
+
 func start_match(new_mode: String, bots: int) -> void:
     mode = new_mode
     bot_count = bots

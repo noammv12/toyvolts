@@ -33,6 +33,7 @@ var alive := true
 var protection_left := 0.0
 var kills := 0
 var deaths := 0
+var rounds_won := 0
 var spawn_home := Vector3.ZERO
 var last_hit_weapon := ""
 var respawn_at_msec := 0
