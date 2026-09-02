@@ -2,6 +2,7 @@ extends Node
 ## Headless smoke + logic tests. Runs as a scene so autoloads exist before anything compiles.
 ## Run: tools/test.sh   (exit code 0 = green)
 
+const ARENA := "res://src/world/arena_greybox.tscn"
 const TARGET_DUMMY: PackedScene = preload("res://src/world/target_dummy.tscn")
 
 var _fails := 0
@@ -11,7 +12,8 @@ var _count := 0
 func _ready() -> void:
     Arsenal.spread_scale = 0.0
     _test_weapon_state()
-    await _test_scene()
+    await _test_practice_scene()
+    await _test_match()
     print("\n%d checks, %d failed" % [_count, _fails])
     get_tree().quit(1 if _fails > 0 else 0)
 
@@ -70,10 +72,11 @@ func _test_weapon_state() -> void:
     _check("melee never needs ammo", melee.has_ammo() and not melee.can_reload())
 
 
-# ---- scene ---------------------------------------------------------------------
+# ---- practice scene: weapons against a dummy ------------------------------------
 
-func _test_scene() -> void:
-    var arena_scene := load("res://src/world/arena_greybox.tscn") as PackedScene
+func _test_practice_scene() -> void:
+    Game.mode = "practice"
+    var arena_scene := load(ARENA) as PackedScene
     _check("arena scene loads", arena_scene != null)
     if arena_scene == null:
         return
@@ -81,6 +84,7 @@ func _test_scene() -> void:
     add_child(arena)
     await get_tree().process_frame
     _check("arena built > 20 static bodies", arena.box_count > 20)
+    _check("navmesh baked (%d polys)" % arena.navmesh_polys, arena.navmesh_polys > 20)
     _check("arena spawned dummies", get_tree().get_nodes_in_group("characters").size() >= 4)
     var player := arena.get_node_or_null("Player") as Player
     _check("arena has Player", player != null)
@@ -119,6 +123,7 @@ func _test_scene() -> void:
     hp0 = dummy.hp
     await _pull_trigger(player)
     _check("rifle headshot does 13.5 (%.1f)" % (hp0 - dummy.hp), is_equal_approx(hp0 - dummy.hp, 13.5))
+    _check("kill feed knows the weapon", dummy.last_hit_weapon == "Rifle")
 
     # shotgun: semi-auto, pellets converge with spread 0
     player.arsenal.select(3)
@@ -179,6 +184,7 @@ func _test_scene() -> void:
     var kills0 := player.kills
     dummy.take_damage(1000.0, player, dummy.center(), Vector3.ZERO, false)
     _check("dummy dies and credits the killer", not dummy.alive and player.kills == kills0 + 1)
+    _check("death drops a health vial", get_tree().get_nodes_in_group("pickups").size() >= 1)
     for i in 215:
         await get_tree().physics_frame
     _check("dummy respawns at home with full hp",
@@ -187,6 +193,67 @@ func _test_scene() -> void:
     arena.queue_free()
     await get_tree().process_frame
 
+
+# ---- ffa match: bots, vials, scoring --------------------------------------------
+
+func _test_match() -> void:
+    Game.mode = "ffa"
+    Game.bot_count = 2
+    var arena: Node3D = (load(ARENA) as PackedScene).instantiate()
+    add_child(arena)
+    await get_tree().process_frame
+    var player := arena.get_node("Player") as Player
+    player.input_enabled = false
+    var m := arena.get_node("Match") as MatchController
+    var bots := get_tree().get_nodes_in_group("bots")
+    _check("2 bots spawned", bots.size() == 2)
+    _check("match is FFA to 20", m.mode == "ffa" and m.score_limit == 20)
+    if bots.size() < 2:
+        arena.queue_free()
+        return
+    var starts: Array[Vector3] = []
+    for b in bots:
+        starts.append(b.global_position)
+    for i in 300:
+        await get_tree().physics_frame
+    var moved := 0
+    var fired := 0
+    for i in bots.size():
+        if bots[i].global_position.distance_to(starts[i]) > 1.0:
+            moved += 1
+        fired += bots[i].shots_fired
+    _check("bots move around (%d/2)" % moved, moved >= 1)
+    _check("bots fire at enemies (%d shots)" % fired, fired > 0)
+    _check("status line reports FFA", m.status_line(player).begins_with("FFA"))
+
+    # health vial heals (bots frozen so nobody interferes)
+    Game.match_active = false
+    var bot := bots[0] as Character
+    await _reset(bot)
+    bot.hp = 40.0
+    var vial := HealthVial.new()
+    arena.add_child(vial)
+    vial.global_position = bot.global_position
+    for i in 12:
+        await get_tree().physics_frame
+    _check("vial heals +30 (hp %.0f)" % bot.hp, is_equal_approx(bot.hp, 70.0) and not is_instance_valid(vial))
+
+    # scoring + end + restart
+    Game.match_active = true
+    m.score_limit = 1
+    var ended := [false]
+    m.match_ended.connect(func(_t: String) -> void: ended[0] = true)
+    bot.take_damage(1000.0, player, bot.center(), Vector3.ZERO, false)
+    _check("reaching the limit ends the match (%s)" % m.winner_text,
+        ended[0] and not Game.match_active and m.winner_text == "YOU WIN")
+    m.restart()
+    _check("restart resets scores and revives", Game.match_active and player.kills == 0 and bot.alive)
+
+    arena.queue_free()
+    await get_tree().process_frame
+
+
+# ---- helpers -------------------------------------------------------------------
 
 func _reset(c: Character) -> void:
     c.hp = 100.0

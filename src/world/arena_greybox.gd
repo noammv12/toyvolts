@@ -1,9 +1,11 @@
 extends Node3D
 ## Greybox arena at toy scale (a 1.8 m figure in a 48 m room). Built from a box table so the
-## layout is easy to iterate. Replaced by a real map in the art milestone.
+## layout is easy to iterate; bakes a navmesh for the bots at runtime. Populates itself
+## from Game.mode: practice (dummies), ffa or tdm (bots).
 
 const TOON: Shader = preload("res://shaders/toon.gdshader")
 const DUMMY: PackedScene = preload("res://src/world/target_dummy.tscn")
+const BOT: PackedScene = preload("res://src/bots/bot.tscn")
 
 const COL_FLOOR := Color(0.88, 0.85, 0.78)
 const COL_WALL := Color(0.6, 0.72, 0.86)
@@ -13,6 +15,12 @@ const COL_CRATE := Color(0.95, 0.62, 0.24)
 const COL_CRATE2 := Color(0.9, 0.45, 0.3)
 const COL_PILLAR := Color(0.75, 0.6, 0.9)
 const COL_TABLE := Color(0.62, 0.42, 0.28)
+
+const TEAM_COLORS := {1: Color(0.95, 0.42, 0.2), 2: Color(0.25, 0.5, 0.95)}
+const FFA_COLORS: Array[Color] = [
+    Color(0.25, 0.5, 0.95), Color(0.55, 0.8, 0.35), Color(0.85, 0.35, 0.75),
+    Color(0.95, 0.8, 0.2), Color(0.3, 0.8, 0.8), Color(0.6, 0.4, 0.9), Color(0.9, 0.5, 0.3),
+]
 
 const ROOM := 48.0
 const WALL_H := 6.0
@@ -25,6 +33,7 @@ const DUMMIES: Array[Vector3] = [Vector3(5, 0.2, 8), Vector3(0, 2.7, 0), Vector3
 
 var _mats := {}
 var box_count := 0
+var navmesh_polys := 0
 
 
 func _ready() -> void:
@@ -32,11 +41,59 @@ func _ready() -> void:
     if match_node:
         match_node.spawn_points = SPAWNS
     _build()
-    for pos in DUMMIES:
-        var d := DUMMY.instantiate() as Character
-        d.position = pos
-        d.yaw = PI  # face the default spawn
-        add_child(d)
+    _bake_navmesh()
+    var player := get_node_or_null("Player") as Player
+    match Game.mode:
+        "ffa":
+            if player:
+                player.team = 0
+            _spawn_bots(Game.bot_count, false)
+        "tdm":
+            if player:
+                player.team = 1
+                player.set_color(TEAM_COLORS[1])
+            _spawn_bots(Game.bot_count, true)
+        _:
+            for pos in DUMMIES:
+                var d := DUMMY.instantiate() as Character
+                d.position = pos
+                d.yaw = PI  # face the default spawn
+                add_child(d)
+
+
+func _spawn_bots(count: int, teams: bool) -> void:
+    for i in count:
+        var b := BOT.instantiate() as Bot
+        b.display_name = Bot.NAMES[i % Bot.NAMES.size()]
+        b.skill = randf_range(0.35, 0.75)
+        if teams:
+            b.team = 2 if i % 2 == 0 else 1
+            b.body_color = TEAM_COLORS[b.team]
+        else:
+            b.team = 0
+            b.body_color = FFA_COLORS[i % FFA_COLORS.size()]
+        var p := SPAWNS[(i + 1) % SPAWNS.size()]
+        b.position = p
+        b.yaw = atan2(p.x, p.z)
+        add_child(b)
+
+
+func _bake_navmesh() -> void:
+    var region := NavigationRegion3D.new()
+    var mesh := NavigationMesh.new()
+    mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
+    mesh.geometry_source_geometry_mode = NavigationMesh.SOURCE_GEOMETRY_GROUPS_WITH_CHILDREN
+    mesh.geometry_source_group_name = "navmesh_source"
+    mesh.agent_radius = 0.5      # 2 cells
+    mesh.agent_height = 2.0      # 8 cells
+    mesh.agent_max_climb = 1.0   # 4 cells: the 1 m crate steps are walkable (bots hop them)
+    mesh.agent_max_slope = 40.0
+    mesh.cell_size = 0.25
+    mesh.cell_height = 0.25
+    region.navigation_mesh = mesh
+    add_child(region)
+    region.bake_navigation_mesh(false)
+    navmesh_polys = mesh.get_polygon_count()
 
 
 func _build() -> void:
@@ -87,6 +144,7 @@ func _box(center: Vector3, size: Vector3, color: Color, rot := Vector3.ZERO, gri
     var body := StaticBody3D.new()
     body.position = center
     body.rotation = rot
+    body.add_to_group("navmesh_source")
 
     var shape := CollisionShape3D.new()
     var box_shape := BoxShape3D.new()

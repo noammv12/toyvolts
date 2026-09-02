@@ -6,7 +6,7 @@ config_version=5
 [application]
 
 config/name="ToyVolts"
-run/main_scene="res://src/world/arena_greybox.tscn"
+run/main_scene="res://src/ui/main_menu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
 [autoload]

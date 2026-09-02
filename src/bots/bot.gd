@@ -1,0 +1,310 @@
+class_name Bot
+extends Character
+## AI opponent. Targets the nearest visible enemy, picks a weapon by range (melee close,
+## shotgun near, rifle mid, sniper far, a favourite heavy weapon sometimes), strafes and
+## hops while engaged, wanders the navmesh otherwise and hunts health vials when hurt.
+
+const NAMES := ["Zed", "Pixie", "Brick", "Gizmo", "Sprocket", "Dolly", "Bolt", "Widget", "Nova", "Tock"]
+const THINK_INTERVAL := 0.15
+
+@export var skill := 0.5   ## 0..1: aim error, reaction time, turn speed
+
+var target: Character
+var shots_fired := 0
+
+var _think := 0.0
+var _last_seen := 99.0
+var _seen_for := 0.0
+var _lost_pos := Vector3.ZERO
+var _wander_target := Vector3.ZERO
+var _wander_left := 0.0
+var _aim_error := Vector3.ZERO
+var _aim_error_goal := Vector3.ZERO
+var _aim_error_t := 0.0
+var _strafe := 1.0
+var _strafe_t := 0.0
+var _stuck_t := 0.0
+var _favorite := 2
+var _nav_target := Vector3(INF, INF, INF)
+
+@onready var nav: NavigationAgent3D = $Nav
+
+
+func _ready() -> void:
+    super()
+    add_to_group("bots")
+    nav.path_desired_distance = 0.7
+    nav.target_desired_distance = 1.2
+    nav.path_max_distance = 4.0
+    _favorite = [2, 3, 5, 6, 7].pick_random()
+    _think = randf_range(0.3, 0.9)
+    damaged.connect(_on_damaged)
+    arsenal.fired.connect(func(_d: WeaponData) -> void: shots_fired += 1)
+
+
+func _on_damaged(_amount: float, source: Character, _headshot: bool) -> void:
+    if source != null and source != self and source.alive and _is_enemy(source):
+        if target == null or not target.alive or _last_seen > 1.0:
+            target = source
+            _lost_pos = source.global_position
+            _last_seen = 0.4
+
+
+func _physics_process(delta: float) -> void:
+    if alive and Game.match_active:
+        _brain(delta)
+    else:
+        wish_dir = Vector3.ZERO
+        arsenal.trigger = false
+        arsenal.alt = false
+    super(delta)
+
+
+func _brain(delta: float) -> void:
+    var ticked := false
+    _think -= delta
+    if _think <= 0.0:
+        _think = THINK_INTERVAL
+        ticked = true
+        _pick_target()
+
+    var sees := target != null and target.alive and _can_see(target)
+    if sees:
+        _last_seen = 0.0
+        _seen_for += delta
+        _lost_pos = target.global_position
+    else:
+        _last_seen += delta
+        if _last_seen > 0.5:
+            _seen_for = 0.0
+
+    var engaged := target != null and target.alive and _last_seen < 2.5
+    if engaged:
+        var dist := global_position.distance_to(target.global_position)
+        if ticked:
+            _choose_weapon(dist)
+        _aim(delta, dist, sees)
+        _move_engaged(delta, dist, sees)
+        var reaction := lerpf(0.55, 0.12, skill)
+        arsenal.trigger = sees and _seen_for > reaction and _aim_on_target(dist) and _safe_to_fire(dist)
+        arsenal.alt = arsenal.slot == 4 and dist > 10.0
+    else:
+        arsenal.trigger = false
+        arsenal.alt = false
+        if ticked and arsenal.slot != 2:
+            arsenal.select(2)
+        _wander(delta)
+        var s := arsenal.current()
+        if s.uses_ammo() and s.clip < s.data.clip_size and s.reserve > 0 and not s.is_reloading():
+            arsenal.reload()
+
+
+# ---- perception ---------------------------------------------------------------
+
+func _is_enemy(c: Character) -> bool:
+    if c == null or c == self or not c.alive:
+        return false
+    return team == 0 or c.team != team
+
+
+func _can_see(c: Character) -> bool:
+    var from := eye()
+    var to := c.center()
+    var d := to - from
+    if d.length() > 3.0 and rad_to_deg(facing().angle_to(d)) > 100.0:
+        return false
+    var query := PhysicsRayQueryParameters3D.create(from, to, LAYER_WORLD)
+    return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
+
+
+func _pick_target() -> void:
+    var best: Character = null
+    var best_d := INF
+    for node in get_tree().get_nodes_in_group("characters"):
+        var c := node as Character
+        if not _is_enemy(c):
+            continue
+        var d := global_position.distance_to(c.global_position)
+        if not _can_see(c):
+            d += 30.0
+        if d < best_d:
+            best_d = d
+            best = c
+    if target != null and target.alive and _last_seen < 1.0 and best != target:
+        if best == null or global_position.distance_to(target.global_position) < best_d + 6.0:
+            return
+    if best != target:
+        _seen_for = 0.0
+    target = best
+
+
+# ---- weapons ------------------------------------------------------------------
+
+func _usable(slot: int) -> bool:
+    var s := arsenal.states[slot - 1]
+    return not s.uses_ammo() or s.clip > 0
+
+
+func _choose_weapon(dist: float) -> void:
+    var want := 2
+    if dist < 2.6:
+        want = 1
+    elif dist < 7.0:
+        want = 3 if _usable(3) else 2
+    elif dist > 19.0:
+        want = 4 if _usable(4) else 2
+    else:
+        want = 2
+        if _favorite in [5, 6, 7] and _usable(_favorite) and dist > 5.0 and randf() < 0.6:
+            want = _favorite
+        elif _favorite == 3 and dist < 9.0 and _usable(3):
+            want = 3
+    if not _usable(want):
+        want = 2
+    if want != arsenal.slot:
+        arsenal.select(want)
+
+
+func _aim(delta: float, dist: float, sees: bool) -> void:
+    _aim_error_t -= delta
+    if _aim_error_t <= 0.0:
+        _aim_error_t = randf_range(0.25, 0.6)
+        var mag := (1.0 - skill) * 0.9
+        _aim_error_goal = Vector3(randf_range(-1, 1), randf_range(-0.6, 0.6), randf_range(-1, 1)) * mag
+    _aim_error = _aim_error.lerp(_aim_error_goal, minf(1.0, delta * 6.0))
+
+    var point: Vector3 = target.center() if sees else _lost_pos + Vector3(0, 1, 0)
+    point += _aim_error * clampf(dist / 8.0, 0.5, 3.0)
+    var d := arsenal.data()
+    if d.kind == WeaponData.Kind.PROJECTILE and sees:
+        var flight := dist / maxf(d.projectile_speed, 1.0)
+        point += target.velocity * flight * 0.8
+        if d.projectile_gravity > 0.0:
+            point += Vector3.UP * (0.5 * d.projectile_gravity * flight * flight)
+    var dir := (point - eye()).normalized()
+    var want_yaw := atan2(-dir.x, -dir.z)
+    var want_pitch := asin(clampf(dir.y, -1.0, 1.0))
+    var rate := lerpf(5.0, 14.0, skill)
+    yaw = lerp_angle(yaw, want_yaw, minf(1.0, delta * rate))
+    pitch = lerpf(pitch, want_pitch, minf(1.0, delta * rate))
+
+
+func _aim_on_target(dist: float) -> bool:
+    if arsenal.slot == 1:
+        return dist < 2.4
+    var to := target.center() - eye()
+    var tolerance := 3.0 + 25.0 / maxf(dist, 1.0)
+    return rad_to_deg(aim_dir().angle_to(to)) < tolerance
+
+
+func _safe_to_fire(dist: float) -> bool:
+    if arsenal.data().kind == WeaponData.Kind.PROJECTILE:
+        return dist > 4.5
+    return true
+
+
+# ---- movement -----------------------------------------------------------------
+
+func _move_engaged(delta: float, dist: float, sees: bool) -> void:
+    var pref_min := 4.0
+    var pref_max := 12.0
+    match arsenal.slot:
+        1:
+            pref_min = 0.0
+            pref_max = 1.6
+        3:
+            pref_min = 1.5
+            pref_max = 5.0
+        4:
+            pref_min = 12.0
+            pref_max = 30.0
+        6, 7:
+            pref_min = 6.0
+            pref_max = 14.0
+    if not sees:
+        _move_to(_lost_pos, delta)
+        return
+    _strafe_t -= delta
+    if _strafe_t <= 0.0:
+        _strafe_t = randf_range(0.6, 1.4)
+        if randf() < 0.7:
+            _strafe = -_strafe
+    var to := target.global_position - global_position
+    to.y = 0.0
+    if to.length() < 0.01:
+        return
+    var toward := to.normalized()
+    if dist > pref_max:
+        _move_to(target.global_position, delta)
+    elif dist < pref_min:
+        wish_dir = -toward
+    else:
+        var side := toward.cross(Vector3.UP) * _strafe
+        wish_dir = (side + toward * 0.15).normalized()
+        if is_on_floor() and randf() < delta * 0.5:
+            jump_pressed = true
+
+
+func _move_to(p: Vector3, delta: float) -> void:
+    if _nav_target.distance_to(p) > 1.5:
+        _nav_target = p
+        nav.target_position = p
+    if nav.is_navigation_finished():
+        wish_dir = Vector3.ZERO
+        return
+    var next := nav.get_next_path_position()
+    var dir := next - global_position
+    var rise := dir.y
+    dir.y = 0.0
+    wish_dir = dir.normalized() if dir.length() > 0.05 else Vector3.ZERO
+    if is_on_floor() and rise > 0.45 and dir.length() < 1.6:
+        jump_pressed = true
+    if wish_dir != Vector3.ZERO and velocity.length() < 0.5:
+        _stuck_t += delta
+        if _stuck_t > 0.8 and is_on_floor():
+            jump_pressed = true
+        if _stuck_t > 2.0:
+            _stuck_t = 0.0
+            _wander_left = 0.0
+            _nav_target = Vector3(INF, INF, INF)
+    else:
+        _stuck_t = 0.0
+
+
+func _wander(delta: float) -> void:
+    _wander_left -= delta
+    if hp < 60.0:
+        var vial := _nearest_pickup(14.0)
+        if vial != null:
+            _move_to(vial.global_position, delta)
+            _look_along_motion(delta)
+            return
+    if _wander_left <= 0.0 or (nav.is_navigation_finished() and _wander_target != Vector3.ZERO):
+        _wander_left = randf_range(5.0, 9.0)
+        var map := get_world_3d().navigation_map
+        var p := NavigationServer3D.map_get_random_point(map, 1, false)
+        _wander_target = p if p != Vector3.ZERO else global_position + Vector3(randf_range(-10, 10), 0, randf_range(-10, 10))
+        _nav_target = Vector3(INF, INF, INF)
+    _move_to(_wander_target, delta)
+    _look_along_motion(delta)
+
+
+func _look_along_motion(delta: float) -> void:
+    if wish_dir.length() > 0.1:
+        var want_yaw := atan2(-wish_dir.x, -wish_dir.z)
+        yaw = lerp_angle(yaw, want_yaw, minf(1.0, delta * 6.0))
+    pitch = lerpf(pitch, 0.0, minf(1.0, delta * 4.0))
+
+
+func _nearest_pickup(max_dist: float) -> Node3D:
+    var best: Node3D = null
+    var best_d := max_dist
+    for node in get_tree().get_nodes_in_group("pickups"):
+        var p := node as Node3D
+        if p == null:
+            continue
+        var d := global_position.distance_to(p.global_position)
+        if d < best_d:
+            best_d = d
+            best = p
+    return best

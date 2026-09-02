@@ -18,6 +18,8 @@ const KEYS := {
     "weapon_6": [KEY_6],
     "weapon_7": [KEY_7],
     "toggle_mouse": [KEY_ESCAPE],
+    "scoreboard": [KEY_TAB],
+    "menu": [KEY_M],
 }
 
 const MOUSE := {

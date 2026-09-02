@@ -1,9 +1,15 @@
 extends Node
-## Global state: command-line args, mouse capture, settings.
+## Global state: command-line args, mouse capture, settings, match setup.
+
+const ARENA_SCENE := "res://src/world/arena_greybox.tscn"
+const MENU_SCENE := "res://src/ui/main_menu.tscn"
 
 var mouse_captured := false
 var mouse_sensitivity := 0.0022
 var headless := false
+var mode := "practice"      ## practice | ffa | tdm
+var bot_count := 5
+var match_active := true
 var _args := {}
 
 
@@ -16,7 +22,9 @@ func _init() -> void:
 
 func _ready() -> void:
     headless = DisplayServer.get_name() == "headless"
-    set_mouse_captured(not headless and not has_arg("screenshot"))
+    if has_arg("mode"):
+        mode = arg("mode")
+    bot_count = int(arg("bots", "5"))
 
 
 func has_arg(name: String) -> bool:
@@ -34,7 +42,20 @@ func set_mouse_captured(captured: bool) -> void:
     Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if captured else Input.MOUSE_MODE_VISIBLE
 
 
+func start_match(new_mode: String, bots: int) -> void:
+    mode = new_mode
+    bot_count = bots
+    get_tree().change_scene_to_file.call_deferred(ARENA_SCENE)
+
+
+func to_menu() -> void:
+    set_mouse_captured(false)
+    get_tree().change_scene_to_file.call_deferred(MENU_SCENE)
+
+
 func _input(event: InputEvent) -> void:
+    if get_tree().get_first_node_in_group("player") == null:
+        return
     if event.is_action_pressed("toggle_mouse"):
         set_mouse_captured(not mouse_captured)
     elif event is InputEventMouseButton and event.pressed and not mouse_captured and not has_arg("screenshot"):

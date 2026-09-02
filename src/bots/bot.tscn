@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://src/character/character.tscn" id="1"]
+[ext_resource type="Script" path="res://src/bots/bot.gd" id="2"]
+
+[node name="Bot" instance=ExtResource("1")]
+script = ExtResource("2")
+display_name = "Bot"
+
+[node name="Nav" type="NavigationAgent3D" parent="."]
+path_desired_distance = 0.7
+target_desired_distance = 1.2
+path_max_distance = 4.0

@@ -33,6 +33,8 @@ var protection_left := 0.0
 var kills := 0
 var deaths := 0
 var spawn_home := Vector3.ZERO
+var last_hit_weapon := ""
+var respawn_at_msec := 0
 
 # controller inputs
 var yaw := 0.0
@@ -64,6 +66,13 @@ func _ready() -> void:
     _head_mat.set_shader_parameter("albedo", body_color.lightened(0.35))
     head_mesh.material_override = _head_mat
     health_changed.emit(hp, max_hp)
+
+
+func set_color(color: Color) -> void:
+    body_color = color
+    if _body_mat != null:
+        _body_mat.set_shader_parameter("albedo", color)
+        _head_mat.set_shader_parameter("albedo", color.lightened(0.35))
 
 
 func _process(delta: float) -> void:
@@ -141,10 +150,12 @@ func apply_kick(_deg: float) -> void:
 
 func take_damage(amount: float, source: Character, _hit_pos: Vector3, impulse: Vector3,
         headshot: bool) -> Dictionary:
-    if not alive or protection_left > 0.0 or amount <= 0.0:
+    if not alive or protection_left > 0.0 or amount <= 0.0 or not Game.match_active:
         return {"applied": false, "killed": false}
     hp = maxf(0.0, hp - amount)
     velocity += impulse
+    if source != null and source.arsenal != null:
+        last_hit_weapon = source.arsenal.data().display_name
     _flash = 1.0
     damaged.emit(amount, source, headshot)
     health_changed.emit(hp, max_hp)

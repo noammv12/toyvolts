@@ -1,8 +1,10 @@
 extends CanvasLayer
 ## In-match HUD: crosshair + hit marker, HP, ammo, reload/heat bars, weapon strip,
-## sniper scope, damage flash, kill feed. Built in code; polls the player every frame.
+## sniper scope, damage flash, kill feed, match status, Tab scoreboard, respawn timer,
+## match-end banner. Built in code; polls the player and match every frame.
 
 var _player: Player
+var _match: MatchController
 var _overlay: Overlay
 var _damage_flash: ColorRect
 var _hp_label: Label
@@ -10,8 +12,13 @@ var _ammo_label: Label
 var _weapon_label: Label
 var _fps_label: Label
 var _feed_label: Label
+var _status_label: Label
+var _center_label: Label
+var _scoreboard: PanelContainer
+var _score_rows: VBoxContainer
 var _slot_labels: Array[Label] = []
 var _feed: Array = []   # [text, expires_at]
+var _banner_until := 0.0
 
 
 class Overlay extends Control:
@@ -24,7 +31,7 @@ class Overlay extends Control:
         queue_redraw()
 
     func _draw() -> void:
-        if player == null:
+        if player == null or not player.alive:
             return
         var c := size * 0.5
         var d := player.arsenal.data()
@@ -74,21 +81,23 @@ class Overlay extends Control:
 func _ready() -> void:
     _build()
     _player = get_tree().get_first_node_in_group("player") as Player
+    _match = get_tree().get_first_node_in_group("match") as MatchController
     _overlay.player = _player
     if _player:
         _player.arsenal.hit_confirmed.connect(_on_hit)
         _player.damaged.connect(_on_damaged)
         _player.arsenal.weapon_changed.connect(func(slot: int, _d: WeaponData) -> void: _refresh_slots(slot))
         _refresh_slots(_player.arsenal.slot)
-    var match_node := get_tree().get_first_node_in_group("match")
-    if match_node and match_node.has_signal("kill_feed"):
-        match_node.kill_feed.connect(_on_kill_feed)
+    if _match:
+        _match.kill_feed.connect(_on_kill_feed)
+        _match.match_ended.connect(_on_match_ended)
 
 
 func _process(_delta: float) -> void:
     _fps_label.text = "%d fps" % Engine.get_frames_per_second()
     if _player == null:
         return
+    var now := Time.get_ticks_msec() / 1000.0
     _hp_label.text = "HP %d" % int(ceil(_player.hp))
     var s := _player.arsenal.current()
     var d := s.data
@@ -102,12 +111,34 @@ func _process(_delta: float) -> void:
     else:
         _ammo_label.text = "%d / %d" % [s.clip, s.reserve]
     _ammo_label.modulate = Color(1, 0.4, 0.3) if (s.uses_ammo() and s.clip == 0) else Color.WHITE
-    var now := Time.get_ticks_msec() / 1000.0
+
     _feed = _feed.filter(func(e: Array) -> bool: return e[1] > now)
     var lines := PackedStringArray()
     for e in _feed:
         lines.append(e[0])
     _feed_label.text = "\n".join(lines)
+
+    if _match:
+        _status_label.text = _match.status_line(_player)
+
+    # centre message: banner > respawn timer > mouse hint
+    if _banner_until > now and _match:
+        _center_label.text = _match.winner_text
+        _center_label.modulate = Color(1, 0.85, 0.3)
+    elif not _player.alive:
+        var left := maxf(0.0, (_player.respawn_at_msec - Time.get_ticks_msec()) / 1000.0)
+        _center_label.text = "Respawn in %d" % int(ceil(left))
+        _center_label.modulate = Color.WHITE
+    elif not Game.mouse_captured and not Game.headless and not Game.has_arg("screenshot"):
+        _center_label.text = "Click to play   |   M = menu"
+        _center_label.modulate = Color(1, 1, 1, 0.8)
+    else:
+        _center_label.text = ""
+
+    var show_scores := Input.is_action_pressed("scoreboard") or _banner_until > now
+    _scoreboard.visible = show_scores and _match != null and _match.mode != "practice"
+    if _scoreboard.visible:
+        _refresh_scoreboard()
 
 
 func _build() -> void:
@@ -132,8 +163,12 @@ func _build() -> void:
     _feed_label.offset_top += 30
     _feed_label.offset_bottom += 30
     _feed_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-    _label("WASD move   Space jump (melee: double)   LMB fire   RMB aim / heavy   R reload   1-7 / wheel / Q weapons   Esc mouse",
-        Control.PRESET_TOP_LEFT, 15)
+    _status_label = _label("", Control.PRESET_CENTER_TOP, 18)
+    _center_label = _label("", Control.PRESET_CENTER, 40)
+    _center_label.offset_top += 110
+    _center_label.offset_bottom += 110
+    _center_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    _label("Tab scoreboard   Esc mouse", Control.PRESET_TOP_LEFT, 15)
 
     var strip := HBoxContainer.new()
     strip.add_theme_constant_override("separation", 14)
@@ -146,6 +181,50 @@ func _build() -> void:
         _style(l, 15)
         strip.add_child(l)
         _slot_labels.append(l)
+
+    _scoreboard = PanelContainer.new()
+    _scoreboard.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+    _scoreboard.grow_horizontal = Control.GROW_DIRECTION_BOTH
+    _scoreboard.grow_vertical = Control.GROW_DIRECTION_BOTH
+    _scoreboard.offset_top -= 160
+    _scoreboard.offset_bottom -= 160
+    _scoreboard.visible = false
+    add_child(_scoreboard)
+    var margin := MarginContainer.new()
+    for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
+        margin.add_theme_constant_override(side, 16)
+    _scoreboard.add_child(margin)
+    _score_rows = VBoxContainer.new()
+    _score_rows.add_theme_constant_override("separation", 4)
+    margin.add_child(_score_rows)
+
+
+func _refresh_scoreboard() -> void:
+    for child in _score_rows.get_children():
+        child.queue_free()
+    _score_row(["TOY", "K", "D"], Color(1, 1, 1, 0.6), true)
+    for c in _match.ranking():
+        var col := Color.WHITE
+        if _match.mode == "tdm":
+            col = Color(1, 0.55, 0.4) if c.team == 1 else Color(0.55, 0.7, 1.0)
+        if c == _player:
+            col = Color(1, 0.9, 0.4)
+        _score_row([c.display_name, str(c.kills), str(c.deaths)], col, false)
+
+
+func _score_row(cells: Array, color: Color, header: bool) -> void:
+    var row := HBoxContainer.new()
+    row.add_theme_constant_override("separation", 10)
+    var widths := [200, 50, 50]
+    for i in cells.size():
+        var l := Label.new()
+        l.text = cells[i]
+        l.custom_minimum_size = Vector2(widths[i], 0)
+        l.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT if i == 0 else HORIZONTAL_ALIGNMENT_RIGHT
+        l.modulate = color
+        _style(l, 16 if header else 20)
+        row.add_child(l)
+    _score_rows.add_child(row)
 
 
 func _label(text: String, preset: Control.LayoutPreset, font_size: int) -> Label:
@@ -168,6 +247,8 @@ func _grow_inward(c: Control, preset: Control.LayoutPreset) -> void:
     match preset:
         Control.PRESET_BOTTOM_LEFT, Control.PRESET_BOTTOM_RIGHT, Control.PRESET_CENTER_BOTTOM:
             c.grow_vertical = Control.GROW_DIRECTION_BEGIN
+        Control.PRESET_CENTER:
+            c.grow_vertical = Control.GROW_DIRECTION_BOTH
 
 
 func _style(l: Label, font_size: int) -> void:
@@ -196,3 +277,7 @@ func _on_kill_feed(text: String) -> void:
     _feed.append([text, Time.get_ticks_msec() / 1000.0 + 5.0])
     if _feed.size() > 5:
         _feed.pop_front()
+
+
+func _on_match_ended(_text: String) -> void:
+    _banner_until = Time.get_ticks_msec() / 1000.0 + 7.0

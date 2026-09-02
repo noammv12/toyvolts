@@ -20,6 +20,7 @@ func _ready() -> void:
     yaw = deg_to_rad(float(Game.arg("yaw", "0")))
     pitch = deg_to_rad(float(Game.arg("pitch", "-10")))
     _pitch_node.rotation.x = pitch
+    Game.set_mouse_captured(not Game.headless and not Game.has_arg("screenshot"))
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -35,6 +36,8 @@ func _unhandled_input(event: InputEvent) -> void:
                 deg_to_rad(PITCH_LIMITS_DEG.x), deg_to_rad(PITCH_LIMITS_DEG.y))
         return
     if not Game.mouse_captured:
+        if event.is_action_pressed("menu"):
+            Game.to_menu()
         return
     for i in range(1, 8):
         if event.is_action_pressed("weapon_%d" % i):
