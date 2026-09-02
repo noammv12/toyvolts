@@ -51,6 +51,7 @@ func _ready() -> void:
                 var stream := load(dir_path + f) as AudioStream
                 if stream:
                     _streams[f.get_basename()] = stream
+    print("Sfx: %d sounds loaded" % _streams.size())
     for i in POOL_3D:
         var p := AudioStreamPlayer3D.new()
         p.max_distance = 70.0
