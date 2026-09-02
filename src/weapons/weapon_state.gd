@@ -13,6 +13,11 @@ var heat := 0.0             ## 0..1, overheats at 1
 var overheated := false
 var combo := 0              ## melee light-attack combo index (0 horizontal, 1 upward, 2 overhead)
 var combo_left := 0.0       ## seconds until the combo drops back to the first swing
+var holstered := 0.0        ## seconds this weapon has been out of the hand (auto-reload timer)
+
+## A weapon you are not holding reloads itself from reserve, taking this many times its hand
+## reload. Slow enough that swapping to reload is still a choice, not a free trick.
+const HOLSTER_RELOAD := 1.5
 
 
 func _init(weapon: WeaponData) -> void:
@@ -30,10 +35,20 @@ func refill() -> void:
     cooldown = 0.0
     combo = 0
     combo_left = 0.0
+    holstered = 0.0
 
 
-func tick(delta: float, trigger_held: bool) -> void:
+## `in_hand` false = holstered: the clip tops itself up from reserve after HOLSTER_RELOAD x
+## reload_time out of the hand (no animation, no sound: it just is full when you come back).
+func tick(delta: float, trigger_held: bool, in_hand := true) -> void:
     cooldown = maxf(0.0, cooldown - delta)
+    if in_hand:
+        holstered = 0.0
+    else:
+        holstered += delta
+        if holstered >= data.reload_time * HOLSTER_RELOAD and can_reload():
+            _finish_reload()
+            holstered = 0.0
     if combo_left > 0.0:
         combo_left -= delta
         if combo_left <= 0.0:

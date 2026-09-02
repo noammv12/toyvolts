@@ -28,7 +28,8 @@ flourish; directional hit flinches; the Microvolts fall-apart death (plastic par
 fade, an orbiting death camera, an assemble effect on respawn); per-weapon effects (shotgun
 cloud, sniper glint others can see, gatling heat glow / smoke / steam, bazooka backblast,
 grenade fuse blink, melee swing ribbons); impacts that know wood from fabric, metal, paper
-and plastic; floating damage numbers and a low-health heartbeat. Spawns are checked for
+and plastic; floating damage numbers and a low-health heartbeat. Weapons you are not holding
+reload themselves from reserve (1.5x their reload time); the one in hand still needs R. Spawns are checked for
 standing room against furniture and other toys before anyone is placed.
 
 Capture the Battery: red vs blue, grab one of the three batteries (yellow beam), run it to

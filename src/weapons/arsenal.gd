@@ -287,7 +287,7 @@ func _physics_process(delta: float) -> void:
     if cosmetic and character.puppet:
         held = Time.get_ticks_msec() - character.last_fire_msec < REMOTE_FIRE_MS
     for i in states.size():
-        states[i].tick(delta, held and i == slot - 1)
+        states[i].tick(delta, held and i == slot - 1, i == slot - 1)
     if swap_left > 0.0:
         swap_left = maxf(0.0, swap_left - delta)
         if swap_left <= READY_EPS:

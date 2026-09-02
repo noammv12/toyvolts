@@ -117,6 +117,20 @@ func _test_weapon_state() -> void:
     rifle.start_reload()
     rifle.tick(1.7, false)
     _check("reload completes", rifle.clip == 30 and rifle.reserve == 119)
+    # holstered weapons top themselves up; the one in hand never does
+    rifle.consume_shot()
+    rifle.tick(10.0, false, true)
+    _check("in hand: no auto-reload (clip %d)" % rifle.clip, rifle.clip == 29)
+    rifle.tick(rifle.data.reload_time * WeaponState.HOLSTER_RELOAD - 0.1, false, false)
+    _check("holstered: still empty just before the timer (clip %d)" % rifle.clip, rifle.clip == 29)
+    rifle.tick(0.2, false, false)
+    _check("holstered: auto-reloaded from reserve (clip %d, reserve %d)" % [rifle.clip, rifle.reserve],
+        rifle.clip == 30 and rifle.reserve == 118)
+    rifle.consume_shot()
+    rifle.tick(1.0, false, false)
+    rifle.tick(0.1, false, true)   # picked up again: the holster timer resets
+    rifle.tick(rifle.data.reload_time * WeaponState.HOLSTER_RELOAD - 0.5, false, false)
+    _check("holstered: the timer restarts after a draw (clip %d)" % rifle.clip, rifle.clip == 29)
 
     var shotgun := WeaponState.new(WeaponDB.for_slot(3))
     for i in 3:

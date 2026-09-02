@@ -31,6 +31,8 @@ The toys move and break like plastic, and three bugs that bit the first party ni
 - **Surface-aware impacts:** wood, fabric, metal, paper, plastic, inferred from the map's
   textures and kit models.
 - **Feedback:** floating damage numbers, a low-health vignette with a heartbeat.
+- **Holstered weapons reload themselves.** A weapon you are not holding tops up its clip
+  from reserve after 1.5x its reload time, silently. The one in your hand still needs R.
 - 14 new procedural sounds. Everything pooled and warmed up; Low holds its frame rate on the
   Intel iGPU.
 
