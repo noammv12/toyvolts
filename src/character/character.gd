@@ -3,7 +3,9 @@ extends CharacterBody3D
 ## Shared body for the player, bots and target dummies: Microvolts-style movement
 ## (constant run speed, no sprint, full air control, snappy jump, melee double jump),
 ## health with head/body hitboxes, the seven-slot Arsenal and an animated Figure.
-## Controllers write `yaw`, `pitch`, `wish_dir`, `jump_pressed` and the arsenal triggers.
+## Controllers write `yaw`, `pitch`, `wish_dir`, `jump_pressed` and the arsenal triggers: the
+## local PlayerController, a Bot brain, or (online) the server applying a peer's input packets.
+## Clients hold `puppet` copies of server-simulated toys that only interpolate snapshots.
 
 signal died(victim: Character, killer: Character)
 signal health_changed(hp: float, max_hp: float)
@@ -39,6 +41,11 @@ var carrying: Battery = null
 var spawn_home := Vector3.ZERO
 var last_hit_weapon := ""
 var respawn_at_msec := 0
+var net_id := 0             ## unique per match: humans = peer id, bots/dummies = 1000+
+var peer_id := 0            ## multiplayer peer that owns this toy (0 = server-side bot/dummy)
+var controller: Node = null ## PlayerController / NetInput: feed(self, delta) runs each physics tick
+var puppet := false         ## client-side copy of a server-simulated toy (no simulation)
+var puppet_on_floor := true
 
 # controller inputs
 var yaw := 0.0
@@ -48,6 +55,9 @@ var jump_pressed := false
 
 var _jumps_used := 0        ## jumps since the last floor contact (max_jumps() can change mid-air)
 var _was_on_floor := false
+var _aim_override := false
+var _aim_origin := Vector3.ZERO
+var _aim_dir := Vector3.FORWARD
 var _flash := 0.0
 var _death_serial := 0
 var _team_ring: MeshInstance3D
@@ -84,12 +94,18 @@ func _process(delta: float) -> void:
     if alive:
         var local := global_transform.basis.inverse() * velocity
         var v := Vector2(local.x, -local.z) / maxf(run_speed, 0.1)
-        figure.set_locomotion(v, is_on_floor(), delta)
+        figure.set_locomotion(v, grounded(), delta)
         figure.set_pitch(pitch)
         figure.set_aiming(arsenal.data().kind != WeaponData.Kind.MELEE)
 
 
 func _physics_process(delta: float) -> void:
+    if controller != null:
+        controller.feed(self, delta)
+    if puppet:
+        rotation.y = yaw
+        weapon_holder.rotation.x = pitch
+        return
     rotation.y = yaw
     weapon_holder.rotation.x = pitch
     protection_left = maxf(0.0, protection_left - delta)
@@ -136,6 +152,19 @@ func max_jumps() -> int:
     return 1 + arsenal.data().extra_jumps
 
 
+## Floor contact as the animation and camera see it (puppets get it from the snapshot).
+func grounded() -> bool:
+    return puppet_on_floor if puppet else is_on_floor()
+
+
+func is_local() -> bool:
+    return controller is PlayerController
+
+
+func is_human() -> bool:
+    return peer_id != 0
+
+
 func jumps_left() -> int:
     return max_jumps() - _jumps_used
 
@@ -156,18 +185,28 @@ func aim_dir() -> Vector3:
     return Vector3(0, 0, -1).rotated(Vector3.RIGHT, pitch).rotated(Vector3.UP, yaw)
 
 
-## Where shots come from and go. The player overrides this with the camera ray.
+## Where shots come from and go. Humans aim along their camera ray (set by the controller
+## every tick, or carried in a client's input packet); bots and dummies shoot from the eye.
 func get_aim_ray() -> Dictionary:
+    if _aim_override:
+        return {"origin": _aim_origin, "dir": _aim_dir}
     return {"origin": eye(), "dir": aim_dir()}
+
+
+func set_aim_ray(origin: Vector3, dir: Vector3) -> void:
+    _aim_override = true
+    _aim_origin = origin
+    _aim_dir = dir
 
 
 func muzzle_position() -> Vector3:
     return arsenal.muzzle_position()
 
 
-## Camera recoil hook; only the local player does something with it.
-func apply_kick(_deg: float) -> void:
-    pass
+## Camera recoil hook; only a local PlayerController does something with it.
+func apply_kick(deg: float) -> void:
+    if controller != null and controller.has_method("apply_kick"):
+        controller.apply_kick(deg)
 
 
 func take_damage(amount: float, source: Character, _hit_pos: Vector3, impulse: Vector3,

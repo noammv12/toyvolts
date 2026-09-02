@@ -40,10 +40,10 @@ func _show_ui(which: String, at_frame: int) -> void:
 
 ## Stages every effect a few metres in front of the player and freezes the scene.
 func _fx_test(at_frame: int) -> void:
-    var player: Player = null
+    var player: Character = null
     while player == null:
         await get_tree().process_frame
-        player = get_tree().get_first_node_in_group("player") as Player
+        player = Game.local_player()
     for i in at_frame:
         await get_tree().process_frame
     var eye := player.eye()
@@ -86,10 +86,10 @@ func _fx_test(at_frame: int) -> void:
 
 
 func _arm_freeze(kind: String, delay_frames: int) -> void:
-    var player: Player = null
+    var player: Character = null
     while player == null:
         await get_tree().process_frame
-        player = get_tree().get_first_node_in_group("player") as Player
+        player = Game.local_player()
     match kind:
         "fire":
             player.arsenal.fired.connect(func(_d: WeaponData) -> void: _freeze_soon(kind, delay_frames))
@@ -135,9 +135,9 @@ func _capture(path: String, frames_spec: String) -> void:
             await get_tree().process_frame
             frame += 1
         await RenderingServer.frame_post_draw
-        var who := get_tree().get_first_node_in_group("player") as Player
-        if who != null:
-            print("[capture] player at %s  camera at %s" % [who.global_position, who.camera.global_position])
+        var who := Game.local_player()
+        if who != null and who.controller != null:
+            print("[capture] player at %s  camera at %s" % [who.global_position, who.controller.camera.global_position])
         var img := get_viewport().get_texture().get_image()
         var abs_path := ProjectSettings.globalize_path(path)
         if targets.size() > 1:
@@ -188,11 +188,11 @@ func _process(_delta: float) -> void:
 
 
 func _bench() -> void:
-    var player: Player = null
+    var player: Character = null
     while player == null:
         await get_tree().process_frame
-        player = get_tree().get_first_node_in_group("player") as Player
-    player.input_enabled = false
+        player = Game.local_player()
+    player.controller.input_enabled = false
     Game.match_active = true
     Game.trace_enabled = true
     if not Game.has_arg("nomeasure"):
@@ -249,7 +249,7 @@ func _bench() -> void:
     get_tree().quit()
 
 
-func _bench_phase(name: String, seconds: float, step: Callable, player: Player) -> Dictionary:
+func _bench_phase(name: String, seconds: float, step: Callable, player: Character) -> Dictionary:
     _bench_frames = []
     _bench_gpu = []
     _bench_cpu = []

@@ -6,6 +6,9 @@ extends Node3D
 const TOON: Shader = preload("res://shaders/toon.gdshader")
 const DUMMY: PackedScene = preload("res://src/world/target_dummy.tscn")
 const BOT: PackedScene = preload("res://src/bots/bot.tscn")
+const CHARACTER: PackedScene = preload("res://src/character/character.tscn")
+const PLAYER_COLOR := Color(0.95, 0.42, 0.2)
+const BOT_NET_ID_BASE := 1000
 const NAV_GROUP := "navmesh_source"
 
 const TEAM_COLORS := {1: Color(0.95, 0.42, 0.2), 2: Color(0.25, 0.5, 0.95)}
@@ -15,12 +18,14 @@ const FFA_COLORS: Array[Color] = [
 ]
 
 var spawns: Array[Vector3] = []
+var player_start := Vector3.INF               ## offline: where the local toy first stands (else spawns[0])
 var dummy_spots: Array[Vector3] = []
 var battery_spawns: Array[Vector3] = []     ## Capture the Battery: where cells appear
 var base_positions := {}                    ## team -> Vector3 charging pad
 var capsule_spawns: Array = []              ## [Vector3, "health" or "ammo"]
 var box_count := 0
 var navmesh_polys := 0
+var local_human: Character
 var _mats := {}
 var _scene_cache := {}
 
@@ -42,21 +47,22 @@ func _ready() -> void:
     if match_node:
         match_node.spawn_points = spawns
         match_node.base_positions = base_positions
-    var player := get_node_or_null("Player") as Player
+    _populate()
+
+
+## Who lives here at the start: the local human, bots by mode, dummies in practice.
+func _populate() -> void:
+    var teams := Game.mode in ["tdm", "ctb"]
+    var team := 1 if teams else 0
+    var p := _side_spawn(team, 0) if (Game.mode == "ctb" and base_positions.has(team)) else spawns[0]
+    if player_start != Vector3.INF and Game.mode != "ctb":
+        p = player_start
+    spawn_human(1, 1, Game.player_name, Game.skin, team, p, atan2(p.x, p.z), true)
     match Game.mode:
-        "ffa":
-            if player:
-                player.team = 0
+        "ffa", "elim":
             _spawn_bots(Game.bot_count, false)
         "tdm", "ctb":
-            if player:
-                player.team = 1
-                player.set_color(TEAM_COLORS[1])
             _spawn_bots(Game.bot_count, true)
-        "elim":
-            if player:
-                player.team = 0
-            _spawn_bots(Game.bot_count, false)
         _:
             for pos in dummy_spots:
                 var d := DUMMY.instantiate() as Character
@@ -64,6 +70,31 @@ func _ready() -> void:
                 d.yaw = PI  # face the default spawn
                 d.model_id = "Rogue"
                 add_child(d)
+
+
+func local_player() -> Character:
+    return local_human
+
+
+## A human-controlled toy. `local` attaches the keyboard/mouse/camera controller; otherwise the
+## body waits for a network controller (server) or snapshots (client puppet).
+func spawn_human(net_id: int, peer_id: int, display_name: String, skin: String, team: int,
+        pos: Vector3, yaw: float, local: bool) -> Character:
+    var c := CHARACTER.instantiate() as Character
+    c.name = "C%d" % net_id
+    c.net_id = net_id
+    c.peer_id = peer_id
+    c.display_name = display_name
+    c.model_id = skin
+    c.team = team
+    c.body_color = TEAM_COLORS[team] if team != 0 else PLAYER_COLOR
+    c.position = pos
+    c.yaw = yaw
+    add_child(c)
+    if local:
+        local_human = c
+        PlayerController.attach(c)
+    return c
 
 
 ## Map layout goes here.
@@ -113,6 +144,7 @@ func sun() -> DirectionalLight3D:
 func _spawn_bots(count: int, teams: bool) -> void:
     for i in count:
         var b := BOT.instantiate() as Bot
+        b.net_id = BOT_NET_ID_BASE + i
         b.display_name = Bot.NAMES[i % Bot.NAMES.size()]
         b.model_id = Skins.ALL[i % Skins.ALL.size()].id
         var range: Array = Bot.SKILL_RANGES.get(Game.bot_difficulty, Bot.SKILL_RANGES["normal"])

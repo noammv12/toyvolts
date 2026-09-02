@@ -24,6 +24,7 @@ var bot_count := 5
 var bot_difficulty := "normal"   ## easy | normal | hard (Bot.SKILL_RANGES)
 var map := "toy_room"            ## MAPS key
 var skin := "Knight"        ## Skins.ALL id
+var player_name := "You"    ## shown in feeds and (online) to other players
 var match_active := true
 
 # graphics + display settings (user://settings.cfg)
@@ -174,6 +175,7 @@ func load_settings() -> void:
     var cfg := ConfigFile.new()
     var loaded := cfg.load(SETTINGS_PATH) == OK
     skin = cfg.get_value("player", "skin", skin)
+    player_name = cfg.get_value("player", "name", player_name)
     mouse_sensitivity = cfg.get_value("player", "sensitivity", mouse_sensitivity)
     if not has_arg("mode"):
         mode = cfg.get_value("match", "mode", mode)
@@ -207,6 +209,7 @@ func load_settings() -> void:
 func save_settings() -> void:
     var cfg := ConfigFile.new()
     cfg.set_value("player", "skin", skin)
+    cfg.set_value("player", "name", player_name)
     cfg.set_value("player", "sensitivity", mouse_sensitivity)
     cfg.set_value("match", "mode", mode)
     cfg.set_value("match", "bots", bot_count)
@@ -344,8 +347,13 @@ func to_menu() -> void:
     get_tree().change_scene_to_file.call_deferred(MENU_SCENE)
 
 
+## The toy this machine controls (null in the menu, on a dedicated server, or before spawn).
+func local_player() -> Character:
+    return get_tree().get_first_node_in_group("local_player") as Character
+
+
 func _input(event: InputEvent) -> void:
-    if get_tree().get_first_node_in_group("player") == null:
+    if local_player() == null:
         return
     var pause := get_tree().get_first_node_in_group("pause_menu")
     if event.is_action_pressed("toggle_mouse"):

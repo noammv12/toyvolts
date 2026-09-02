@@ -5,8 +5,8 @@ func _ready() -> void:
     var arena: Node3D = (load("res://src/world/arena_greybox.tscn") as PackedScene).instantiate()
     add_child(arena)
     await get_tree().process_frame
-    var p := arena.get_node("Player") as Player
-    p.input_enabled = false
+    var p: Character = arena.local_player()
+    p.controller.input_enabled = false
     var f := p.figure
     var sk := f.skeleton
     var hips := sk.find_bone("hips"); var chest := sk.find_bone("chest"); var ua := sk.find_bone("upperarm.r")

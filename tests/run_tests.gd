@@ -90,11 +90,11 @@ func _test_practice_scene() -> void:
     _check("arena built > 20 static bodies", arena.box_count > 20)
     _check("navmesh baked (%d polys)" % arena.navmesh_polys, arena.navmesh_polys > 20)
     _check("arena spawned dummies", get_tree().get_nodes_in_group("characters").size() >= 4)
-    var player := arena.get_node_or_null("Player") as Player
-    _check("arena has Player", player != null)
+    var player: Character = arena.local_player()
+    _check("arena has a local player with a controller", player != null and player.controller is PlayerController)
     if player == null:
         return
-    player.input_enabled = false
+    player.controller.input_enabled = false
     await get_tree().process_frame
     _check("figure rig loaded (skeleton + tree)", player.figure.ready_ok and player.figure.skeleton != null and player.figure.tree.active)
     _check("figure hand grip exists", player.figure.grip != null and player.figure.grip.get_child_count() == 7)
@@ -274,8 +274,8 @@ func _test_match() -> void:
     add_child(arena)
     await get_tree().process_frame
     Game.bot_difficulty = "normal"
-    var player := arena.get_node("Player") as Player
-    player.input_enabled = false
+    var player: Character = arena.local_player()
+    player.controller.input_enabled = false
     var m := arena.get_node("Match") as MatchController
     var bots := get_tree().get_nodes_in_group("bots")
     _check("2 bots spawned", bots.size() == 2)
@@ -318,10 +318,10 @@ func _test_match() -> void:
         c.kills = 0
     m.score_limit = 1
     var ended := [false]
-    m.match_ended.connect(func(_t: String) -> void: ended[0] = true)
+    m.match_ended.connect(func(_t: String, _w: Character) -> void: ended[0] = true)
     bot.take_damage(1000.0, player, bot.center(), Vector3.ZERO, false)
     _check("reaching the limit ends the match (%s)" % m.winner_text,
-        ended[0] and not Game.match_active and m.winner_text == "YOU WIN")
+        ended[0] and not Game.match_active and m.winner == player and m.winner_text == "YOU WINS")
     m.restart()
     _check("restart resets scores and revives", Game.match_active and player.kills == 0 and bot.alive)
 
@@ -350,8 +350,8 @@ func _test_map(key: String, path: String) -> void:
     _check("%s navmesh baked (%d polys)" % [key, room.navmesh_polys], room.navmesh_polys > 80)
     _check("%s has 8 spawns, ctb layout, capsules" % key, room.spawns.size() >= 8 and room.base_positions.size() == 2
         and room.battery_spawns.size() >= 1 and room.capsule_spawns.size() >= 4)
-    var player := room.get_node("Player") as Player
-    player.input_enabled = false
+    var player: Character = room.local_player()
+    player.controller.input_enabled = false
     for i in 90:
         await get_tree().physics_frame
     _check("%s: player stands on the floor" % key, player.is_on_floor() and player.global_position.y > -0.5)
@@ -392,8 +392,8 @@ func _test_ctb() -> void:
     var room: Node3D = (load("res://src/world/toy_room.tscn") as PackedScene).instantiate()
     add_child(room)
     await get_tree().process_frame
-    var player := room.get_node("Player") as Player
-    player.input_enabled = false
+    var player: Character = room.local_player()
+    player.controller.input_enabled = false
     var m := room.get_node("Match") as MatchController
     Game.match_active = false   # freeze bots while we drive the player
     await get_tree().physics_frame
@@ -472,8 +472,8 @@ func _test_elimination() -> void:
     var arena: Node3D = (load(ARENA) as PackedScene).instantiate()
     add_child(arena)
     await get_tree().process_frame
-    var player := arena.get_node("Player") as Player
-    player.input_enabled = false
+    var player: Character = arena.local_player()
+    player.controller.input_enabled = false
     var m := arena.get_node("Match") as MatchController
     _check("elimination round 1 active", m.mode == "elim" and m.round_active and m.round_number == 1)
     Game.match_active = false   # freeze bots
@@ -481,7 +481,7 @@ func _test_elimination() -> void:
     Game.match_active = true
     var bots := get_tree().get_nodes_in_group("bots")
     var rounds := [0]
-    m.round_ended.connect(func(_t: String) -> void: rounds[0] += 1)
+    m.round_ended.connect(func(_t: String, _w: Character) -> void: rounds[0] += 1)
     for b in bots:
         b.take_damage(1000.0, player, b.center(), Vector3.ZERO, false)
     _check("last toy standing ends the round", rounds[0] == 1 and player.rounds_won == 1 and not m.round_active)
@@ -507,10 +507,10 @@ func _reset(c: Character) -> void:
         await get_tree().physics_frame
 
 
-func _aim_at(player: Player, target: Vector3) -> void:
+func _aim_at(player: Character, target: Vector3) -> void:
     for i in 3:
-        player._recoil = 0.0
-        var cam: Vector3 = player.camera.global_position
+        player.controller._recoil = 0.0
+        var cam: Vector3 = player.controller.camera.global_position
         var dir := (target - cam).normalized()
         player.yaw = atan2(-dir.x, -dir.z)
         player.pitch = asin(clampf(dir.y, -1.0, 1.0))
@@ -518,14 +518,14 @@ func _aim_at(player: Player, target: Vector3) -> void:
         await get_tree().process_frame
 
 
-func _wait_swap(player: Player) -> void:
+func _wait_swap(player: Character) -> void:
     while player.arsenal.swap_left > 0.0:
         await get_tree().physics_frame
 
 
 ## Hold a button across a full physics step. `physics_frame` fires *before* nodes process,
 ## so a value set after an idle-frame await must survive two signals to be seen.
-func _hold(player: Player, alt: bool) -> void:
+func _hold(player: Character, alt: bool) -> void:
     var guard := 0
     while not player.arsenal.current().ready_to_fire() and guard < 300:
         await get_tree().physics_frame
@@ -541,5 +541,5 @@ func _hold(player: Player, alt: bool) -> void:
     await get_tree().physics_frame
 
 
-func _pull_trigger(player: Player) -> void:
+func _pull_trigger(player: Character) -> void:
     await _hold(player, false)

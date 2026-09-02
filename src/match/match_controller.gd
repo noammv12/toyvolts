@@ -4,9 +4,9 @@ extends Node
 ## scoring, time limit, rounds (Elimination), match end and restart.
 
 signal kill_feed(text: String)
-signal match_ended(text: String)
-signal round_ended(text: String)
-signal announce(text: String)        ## objective events (battery taken / charged)
+signal match_ended(text: String, winner: Character)   ## winner null for team / draw results
+signal round_ended(text: String, winner: Character)
+signal announce(text: String, who: Character)         ## objective events (battery taken / charged)
 
 const TEAM_NAMES := {1: "RED", 2: "BLUE"}
 const ELIM_ROUND_TIME := 90.0
@@ -20,6 +20,7 @@ var time_limit := 480.0
 var time_left := 480.0
 var active := true
 var winner_text := ""
+var winner: Character = null
 var spawn_points: Array[Vector3] = []
 var round_number := 1
 var round_active := true
@@ -85,8 +86,7 @@ func _register_battery(b: Battery) -> void:
 
 
 func _on_battery_taken(_b: Battery, by: Character) -> void:
-    var who := "You" if by is Player else by.display_name
-    announce.emit("%s took a battery" % who)
+    announce.emit("%s took a battery" % by.display_name, by)
     kill_feed.emit("%s  [battery]" % by.display_name)
 
 
@@ -103,8 +103,7 @@ func _on_charged(base: BatteryBase, by: Character) -> void:
     cell.return_home()
     Sfx.play("respawn", base.global_position, 4.0)
     Vfx.explosion(base.global_position + Vector3(0, 0.6, 0), 1.2)
-    var who := "You" if by is Player else by.display_name
-    announce.emit("%s charged a battery!  %s %d - %d %s" % [who, TEAM_NAMES[1], team_score(1), team_score(2), TEAM_NAMES[2]])
+    announce.emit("%s charged a battery!  %s %d - %d %s" % [by.display_name, TEAM_NAMES[1], team_score(1), team_score(2), TEAM_NAMES[2]], by)
     kill_feed.emit("%s charged a battery" % by.display_name)
     _check_win()
 
@@ -266,7 +265,7 @@ func _check_win() -> void:
     if mode == "ffa":
         for c in ranking():
             if c.kills >= score_limit:
-                _end("YOU WIN" if c is Player else "%s WINS" % c.display_name.to_upper())
+                _end("%s WINS" % c.display_name.to_upper(), c)
                 return
     elif mode == "tdm" or mode == "ctb":
         for team in [1, 2]:
@@ -278,7 +277,8 @@ func _check_win() -> void:
 func _end_by_score() -> void:
     if mode == "ffa":
         var lead := ranking()
-        _end("%s WINS" % lead[0].display_name.to_upper() if not lead.is_empty() else "TIME")
+        _end("%s WINS" % lead[0].display_name.to_upper() if not lead.is_empty() else "TIME",
+            lead[0] if not lead.is_empty() else null)
     elif mode == "tdm" or mode == "ctb":
         var r := team_score(1)
         var b := team_score(2)
@@ -305,17 +305,17 @@ func _end_round_by_time() -> void:
     _end_round(alive[0] if alive.size() == 1 else null)
 
 
-func _end_round(winner: Character) -> void:
+func _end_round(round_winner: Character) -> void:
     if not round_active:
         return
     round_active = false
     var text := "ROUND DRAW"
-    if winner != null:
-        winner.rounds_won += 1
-        text = "YOU WIN THE ROUND" if winner is Player else "%s WINS THE ROUND" % winner.display_name.to_upper()
-    round_ended.emit(text)
-    if winner != null and winner.rounds_won >= score_limit:
-        _end("YOU WIN" if winner is Player else "%s WINS" % winner.display_name.to_upper())
+    if round_winner != null:
+        round_winner.rounds_won += 1
+        text = "%s WINS THE ROUND" % round_winner.display_name.to_upper()
+    round_ended.emit(text, round_winner)
+    if round_winner != null and round_winner.rounds_won >= score_limit:
+        _end("%s WINS" % round_winner.display_name.to_upper(), round_winner)
         return
     await get_tree().create_timer(3.0).timeout
     if not active or not is_inside_tree():
@@ -331,13 +331,14 @@ func _end_round(winner: Character) -> void:
     round_active = true
 
 
-func _end(text: String) -> void:
+func _end(text: String, who: Character = null) -> void:
     if not active:
         return
     active = false
     winner_text = text
+    winner = who
     Game.match_active = false
-    match_ended.emit(text)
+    match_ended.emit(text, who)
     await get_tree().create_timer(7.0).timeout
     if is_inside_tree():
         restart()
@@ -358,6 +359,7 @@ func restart() -> void:
         respawn_now(c)
     time_left = time_limit
     winner_text = ""
+    winner = null
     round_number = 1
     round_active = true
     active = true

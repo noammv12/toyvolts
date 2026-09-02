@@ -7,7 +7,7 @@ extends CanvasLayer
 const SLOT_W := 72.0
 const SLOT_H := 52.0
 
-var _player: Player
+var _player: Character
 var _match: MatchController
 var _overlay: Overlay
 var _radar: Radar
@@ -35,7 +35,7 @@ var _frame_ms := 16.0
 # ---- widgets -------------------------------------------------------------------
 
 class Overlay extends Control:
-    var player: Player
+    var player: Character
     var hud: CanvasLayer
     var hit_marker := 0.0
     var hit_kill := false
@@ -79,7 +79,7 @@ class Overlay extends Control:
                 Color(1, 0.3, 0.2) if s.overheated else Color(1, 0.55, 0.2))
 
     func _draw_crosshair(c: Vector2, d: WeaponData, s: WeaponState) -> void:
-        var air := 4.0 if not player.is_on_floor() else 0.0
+        var air := 4.0 if not player.grounded() else 0.0
         var white := Color.WHITE
         var shadow := Color(0, 0, 0, 0.7)
         match d.slot:
@@ -139,7 +139,7 @@ class Overlay extends Control:
 
 
 class HpBar extends Control:
-    var player: Player
+    var player: Character
 
     func _process(_d: float) -> void:
         queue_redraw()
@@ -165,7 +165,7 @@ class HpBar extends Control:
 class SlotWidget extends Control:
     var slot := 1
     var data: WeaponData
-    var player: Player
+    var player: Character
 
     func _process(_d: float) -> void:
         queue_redraw()
@@ -223,7 +223,7 @@ class SlotWidget extends Control:
 
 
 class Radar extends Control:
-    var player: Player
+    var player: Character
     const R := 68.0
     const RANGE_M := 30.0
 
@@ -292,27 +292,40 @@ class Radar extends Control:
 
 func _ready() -> void:
     _build()
-    _player = get_tree().get_first_node_in_group("player") as Player
-    _match = get_tree().get_first_node_in_group("match") as MatchController
-    _overlay.player = _player
     _overlay.hud = self
-    _hp_bar.player = _player
-    _radar.player = _player
-    for sw in _slots:
-        sw.player = _player
-    if _player:
-        _player.arsenal.hit_confirmed.connect(_on_hit)
-        _player.damaged.connect(_on_damaged)
+    _match = get_tree().get_first_node_in_group("match") as MatchController
     if _match:
         _match.kill_feed.connect(_on_kill_feed)
         _match.match_ended.connect(_on_match_ended)
         _match.round_ended.connect(_on_round_ended)
         _match.announce.connect(_on_announce)
     Game.notice.connect(_on_notice)
+    _bind_player(Game.local_player())
 
 
-func _on_announce(text: String) -> void:
-    _popup(text, Color(1.0, 0.85, 0.3))
+## The local toy spawns after the HUD (arena populate, or a server spawn online): bind lazily.
+func _bind_player(c: Character) -> void:
+    if c == null or c == _player:
+        return
+    _player = c
+    _overlay.player = c
+    _hp_bar.player = c
+    _radar.player = c
+    for sw in _slots:
+        sw.player = c
+    c.arsenal.hit_confirmed.connect(_on_hit)
+    c.damaged.connect(_on_damaged)
+
+
+## "Zed took a battery" reads as "You took a battery" on Zed's own screen.
+func _you(text: String, who: Character) -> String:
+    if who != null and who == _player and not who.display_name.is_empty():
+        return text.replace(who.display_name.to_upper(), "YOU").replace(who.display_name, "You")
+    return text
+
+
+func _on_announce(text: String, who: Character) -> void:
+    _popup(_you(text, who), Color(1.0, 0.85, 0.3))
     _popup_until = Time.get_ticks_msec() / 1000.0 + 2.5
 
 
@@ -324,8 +337,11 @@ func _on_notice(text: String) -> void:
 func _process(delta: float) -> void:
     _frame_ms = lerpf(_frame_ms, delta * 1000.0, 0.08)
     _fps_label.text = "%d fps  %.1f ms" % [Engine.get_frames_per_second(), _frame_ms]
-    if _player == null:
-        return
+    if _player == null or not is_instance_valid(_player):
+        _player = null
+        _bind_player(Game.local_player())
+        if _player == null:
+            return
     var now := Time.get_ticks_msec() / 1000.0
     var s := _player.arsenal.current()
     var d := s.data
@@ -353,7 +369,7 @@ func _process(delta: float) -> void:
         _popup_label.modulate.a = clampf((_popup_until - now) / 0.3, 0.0, 1.0)
 
     if _banner_until > now and _match:
-        _center_label.text = _match.winner_text
+        _center_label.text = "YOU WIN" if (_match.winner != null and _match.winner == _player) else _match.winner_text
         _center_label.modulate = Color(1, 0.85, 0.3)
     elif not _player.alive:
         if _match and _match.mode == "elim":
@@ -562,10 +578,10 @@ func _on_kill_feed(text: String) -> void:
         _feed.pop_front()
 
 
-func _on_match_ended(_text: String) -> void:
+func _on_match_ended(_text: String, _winner: Character) -> void:
     _banner_until = Time.get_ticks_msec() / 1000.0 + 7.0
 
 
-func _on_round_ended(text: String) -> void:
-    _popup(text, Color(1, 0.85, 0.3))
+func _on_round_ended(text: String, round_winner: Character) -> void:
+    _popup(_you(text, round_winner), Color(1, 0.85, 0.3))
     _popup_until = Time.get_ticks_msec() / 1000.0 + 2.5

@@ -20,6 +20,7 @@ func _build() -> void:
         Vector3(0, 0.2, 18), Vector3(0, 0.2, -20), Vector3(20, 0.2, 0), Vector3(-20, 0.2, 0),
         Vector3(18, 0.2, 18), Vector3(-18, 0.2, -18), Vector3(18, 0.2, -18), Vector3(-18, 0.2, 18),
     ]
+    player_start = Vector3(0, 0.2, 18)
     dummy_spots = [Vector3(5, 0.2, 8), Vector3(0, 2.7, 0), Vector3(-12, 0.2, -6)]
 
     var half := ROOM * 0.5

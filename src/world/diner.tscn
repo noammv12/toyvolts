@@ -1,7 +1,6 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://src/world/diner.gd" id="1"]
-[ext_resource type="PackedScene" path="res://src/player/player.tscn" id="2"]
 [ext_resource type="PackedScene" path="res://src/ui/hud.tscn" id="3"]
 [ext_resource type="Script" path="res://src/match/match_controller.gd" id="4"]
 
@@ -70,8 +69,5 @@ environment = SubResource("env")
 
 [node name="Match" type="Node" parent="."]
 script = ExtResource("4")
-
-[node name="Player" parent="." instance=ExtResource("2")]
-position = Vector3(0, 0.3, 15)
 
 [node name="HUD" parent="." instance=ExtResource("3")]
