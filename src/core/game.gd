@@ -413,5 +413,7 @@ func _input(event: InputEvent) -> void:
         else:
             set_mouse_captured(not mouse_captured)
     elif event is InputEventMouseButton and event.pressed and not mouse_captured and not is_capture() \
-            and not get_tree().paused:
+            and not get_tree().paused and not (pause != null and pause.is_open):
+        # Click-to-recapture, but never while the pause menu / settings are up: online the
+        # tree is not paused, so without this guard the first click in the menu stole the mouse.
         set_mouse_captured(true)
