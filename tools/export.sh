@@ -13,8 +13,12 @@ Run ToyVolts.exe. Needs a GPU with Vulkan support (any GeForce GTX 900+/RTX, Rad
 If it will not start, try ToyVolts.exe --rendering-driver d3d12
 
 Controls: WASD move, Space jump (double jump with melee), LMB fire, RMB aim / heavy swing, R reload,
-1-7 or mouse wheel or Q switch weapon, Tab scoreboard, Esc frees the mouse, then M for the menu.
+1-7 or mouse wheel or Q switch weapon, Tab scoreboard, Esc pause / settings.
+
+Online: title screen > Online > Host (port 7777) or Join ip:port. Friends over the internet: NET.md.
+Dedicated server: ToyVolts.exe --headless -- --server --port=7777 --map=diner --mode=ctb --bots=3
 TXT
+cp tools/NET.md build/ToyVolts/NET.md
 rm -f build/ToyVolts-win64.zip
 python -c "
 import zipfile, os

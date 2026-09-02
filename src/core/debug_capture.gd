@@ -20,10 +20,14 @@ func _ready() -> void:
         _capture(Game.arg("screenshot"), Game.arg("frames", "45"))
     if Game.has_arg("bench"):
         _bench()
+    if Game.has_arg("quit_after"):   # seconds; smoke tests end themselves
+        get_tree().create_timer(float(Game.arg("quit_after", "10")), true).timeout.connect(func() -> void:
+            print("[capture] quit_after elapsed")
+            get_tree().quit())
 
 
-## `--ui=pause|settings [--ui_frame=30]`: open the pause overlay (or its settings sheet) for a
-## capture. Works in the arena (pause menu) and in the main menu (settings).
+## `--ui=pause|settings|lobby [--ui_frame=30]`: open the pause overlay (or its settings sheet)
+## for a capture. Works in the arena (pause menu) and in the main menu (settings, lobby).
 func _show_ui(which: String, at_frame: int) -> void:
     for i in at_frame:
         await get_tree().process_frame
@@ -34,7 +38,11 @@ func _show_ui(which: String, at_frame: int) -> void:
             pause._open_settings()
         return
     var menu := get_tree().current_scene
-    if menu != null and menu.has_method("open_settings"):
+    if menu != null and which.begins_with("lobby") and menu.has_method("open_lobby"):
+        menu.open_lobby()
+        if which == "lobby_host":   # the room view: host a game on a spare port
+            Net.host(int(Game.arg("port", "7799")))
+    elif menu != null and menu.has_method("open_settings"):
         menu.open_settings()
 
 

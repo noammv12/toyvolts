@@ -8,6 +8,8 @@ extends Node
 signal weapon_changed(slot: int, data: WeaponData)
 signal fired(data: WeaponData)
 signal hit_confirmed(killed: bool, headshot: bool)
+signal melee_swung(heavy: bool)
+signal reload_started()
 
 const MASK_HIT := Character.LAYER_WORLD | Character.LAYER_CHARACTER
 const SHOT_SOUND := {2: "rifle_shot", 3: "shotgun_shot", 4: "sniper_shot", 5: "gatling_shot",
@@ -22,6 +24,7 @@ const ARC_DROP := 0.32       ## metres the model sits below the grip at the bott
 static var spread_scale := 1.0   ## tests set 0 for deterministic shots
 
 var character: Character
+var cosmetic := false            ## client: play every effect, apply no damage (the server does)
 var states: Array[WeaponState] = []
 var slot := 2
 var previous_slot := 1
@@ -93,10 +96,40 @@ func select_offset(offset: int) -> void:
 func reload() -> void:
     if current().start_reload():
         Game.trace("reload:%d" % slot)
-        Sfx.play("reload", character.center())
-        var f := _figure()
-        if f:
-            f.play_action("reload", data().reload_time)
+        reload_started.emit()
+        _reload_feedback()
+
+
+func _reload_feedback() -> void:
+    Sfx.play("reload", character.center())
+    var f := _figure()
+    if f:
+        f.play_action("reload", data().reload_time)
+
+
+## Client puppets: the server says this toy fired from `origin` along `dir`.
+func fire_remote(new_slot: int, origin: Vector3, dir: Vector3) -> void:
+    if new_slot != slot:
+        select(new_slot)
+    swap_left = 0.0
+    character.set_aim_ray(origin, dir)
+    var s := current()
+    if s.data.kind == WeaponData.Kind.MELEE:
+        _melee(s, s.data.damage, s.data.fire_interval, false)
+    else:
+        _fire(s)
+
+
+func melee_remote(heavy: bool) -> void:
+    if slot != 1:
+        select(1)
+    swap_left = 0.0
+    var s := current()
+    _melee(s, s.data.heavy_damage if heavy else s.data.damage, s.data.heavy_interval if heavy else s.data.fire_interval, heavy)
+
+
+func reload_remote() -> void:
+    _reload_feedback()
 
 
 func refill_all() -> void:
@@ -280,7 +313,7 @@ func _fire_hitscan(d: WeaponData) -> void:
         if hit:
             end = hit.position
             var target := hit.collider as Character
-            if target:
+            if target and not cosmetic:
                 var head := int(hit.shape) == Character.HEAD_SHAPE_INDEX
                 var dist := muzzle.distance_to(hit.position)
                 var dmg := d.damage * dmg_scale * _falloff(d, dist) * (d.headshot_mult if head else 1.0)
@@ -308,6 +341,7 @@ func _fire_projectile(d: WeaponData) -> void:
     if (target_point - ray.origin).dot(ray.dir) > 1.5:
         dir = (target_point - muzzle).normalized()
     var p := Projectile.new()
+    p.cosmetic = cosmetic
     p.setup(d, character, dir * d.projectile_speed)
     character.get_parent().add_child(p)
     p.global_position = muzzle
@@ -324,9 +358,10 @@ func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
     if character.is_on_floor():
         character.velocity += flat * (4.0 if heavy else 2.5)   # the little lunge every swing has
     Sfx.play("melee_swing", origin, 0.0 if heavy else -3.0, 0.1)
+    melee_swung.emit(heavy)
     for node in character.get_tree().get_nodes_in_group("characters"):
         var other := node as Character
-        if other == null or other == character or not other.alive:
+        if other == null or other == character or not other.alive or cosmetic:
             continue
         var to: Vector3 = other.center() - origin
         var dist := to.length()

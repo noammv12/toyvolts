@@ -337,6 +337,10 @@ func _on_notice(text: String) -> void:
 func _process(delta: float) -> void:
     _frame_ms = lerpf(_frame_ms, delta * 1000.0, 0.08)
     _fps_label.text = "%d fps  %.1f ms" % [Engine.get_frames_per_second(), _frame_ms]
+    if Net.is_client():
+        _fps_label.text += "   ping %d ms" % Net.ping_ms
+    elif Net.is_server_role():
+        _fps_label.text += "   hosting %d" % Net.peer_count()
     if _player == null or not is_instance_valid(_player):
         _player = null
         _bind_player(Game.local_player())

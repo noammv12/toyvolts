@@ -15,12 +15,18 @@ var camera: Camera3D
 var _recoil := 0.0
 var _trauma := 0.0
 var _bob_t := 0.0
+var _bob := 0.0
+var _shake_offset := Vector3.ZERO
 var _dip := 0.0             ## weapon-swap camera dip (1 = just switched)
 var _noise := FastNoiseLite.new()
 var _autofire_frame := -1
 var _frame := 0
+var _smoke := false          ## --net_smoke: aim at the nearest enemy and hold fire (loopback test)
+var _smoke_ticks := 0
+var _smoke_shots := 0
 var _pitch_node: Node3D
 var _spring_arm: SpringArm3D
+var _nav: NavigationAgent3D   ## smoke mode only
 
 
 ## Instance the controller scene under `c` (which must already be inside the tree).
@@ -56,6 +62,15 @@ func _ready() -> void:
     if Game.has_arg("autofire"):   # debug: hold the trigger from frame N on
         input_enabled = false
         _autofire_frame = int(Game.arg("autofire", "40"))
+    if Game.has_arg("net_smoke"):
+        input_enabled = false
+        _smoke = true
+        character.arsenal.fired.connect(func(_d: WeaponData) -> void: _smoke_shots += 1)
+        _nav = NavigationAgent3D.new()
+        _nav.path_desired_distance = 0.7
+        _nav.target_desired_distance = 1.2
+        _nav.path_max_distance = 4.0
+        character.add_child(_nav)
     if Game.has_arg("yaw"):
         character.yaw = deg_to_rad(float(Game.arg("yaw")))
     character.pitch = deg_to_rad(float(Game.arg("pitch", "-10")))
@@ -97,6 +112,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## Called by the Character at the top of its physics tick: write this tick's inputs.
 func feed(c: Character, _delta: float) -> void:
+    if _smoke:
+        _smoke_feed(c)
+        c.set_aim_ray(c.eye(), c.aim_dir())
+        return
     if input_enabled:
         if c.alive and Game.mouse_captured:
             var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
@@ -109,8 +128,49 @@ func feed(c: Character, _delta: float) -> void:
             c.wish_dir = Vector3.ZERO
             c.arsenal.trigger = false
             c.arsenal.alt = false
-    # shots go where the crosshair points: a ray from the camera through screen centre
+    # shots go where the crosshair points: a ray from the camera through screen centre, posed
+    # with THIS tick's look (the body applies yaw right after feed; the rig would lag a tick)
+    c.rotation.y = c.yaw
+    _pose_camera()
     c.set_aim_ray(camera.global_position, -camera.global_transform.basis.z)
+
+
+## Loopback smoke test: face the nearest living enemy and hold the rifle trigger.
+func _smoke_feed(c: Character) -> void:
+    var best: Character = null
+    var best_d := INF
+    for node in get_tree().get_nodes_in_group("characters"):
+        var other := node as Character
+        if other == null or other == c or not other.alive or (c.team != 0 and other.team == c.team):
+            continue
+        var d := c.global_position.distance_to(other.global_position)
+        if d < best_d:
+            best_d = d
+            best = other
+    c.wish_dir = Vector3.ZERO
+    if best == null or not c.alive:
+        c.arsenal.trigger = false
+        return
+    var dir := (best.center() - c.eye()).normalized()
+    c.yaw = atan2(-dir.x, -dir.z)
+    c.pitch = asin(clampf(dir.y, -1.0, 1.0))
+    var los := PhysicsRayQueryParameters3D.create(c.eye(), best.center(), Character.LAYER_WORLD)
+    var clear := c.get_world_3d().direct_space_state.intersect_ray(los).is_empty()
+    if best_d > 6.0 or not clear:   # walk the navmesh toward the target like a bot would
+        if _nav.target_position.distance_to(best.global_position) > 1.5:
+            _nav.target_position = best.global_position
+        if not _nav.is_navigation_finished():
+            var step := _nav.get_next_path_position() - c.global_position
+            if step.y > 0.45 and c.is_on_floor():
+                c.jump_pressed = true
+            step.y = 0.0
+            c.wish_dir = step.normalized() if step.length() > 0.05 else Vector3.ZERO
+    if c.arsenal.slot != 2:
+        c.arsenal.select(2)
+    c.arsenal.trigger = c.arsenal.swap_left <= 0.0 and clear
+    _smoke_ticks += 1
+    if _smoke_ticks % 120 == 1:
+        print("[smoke] tick %d: target %s at %.1f m los=%s, hp %.0f, local shots %d" % [_smoke_ticks, best.display_name, best_d, clear, c.hp, _smoke_shots])
 
 
 func _process(delta: float) -> void:
@@ -133,15 +193,21 @@ func _process(delta: float) -> void:
     var speed := Vector2(character.velocity.x, character.velocity.z).length()
     if character.alive and character.grounded() and speed > 2.0:
         _bob_t += delta * 11.0
-    var bob := sin(_bob_t) * 0.012 * clampf(speed / character.run_speed, 0.0, 1.0)
-    var dip := _dip * _dip * 0.045
-    _pitch_node.rotation = Vector3(character.pitch + _recoil + sy - dip * 0.35, sx, sz)
-    _pitch_node.position = Vector3(0, bob - dip, 0)
+    _bob = sin(_bob_t) * 0.012 * clampf(speed / character.run_speed, 0.0, 1.0)
+    _shake_offset = Vector3(sy, sx, sz)
+    _pose_camera()
     var zf := arsenal.zoom_fov()
     var target_fov := zf if zf > 0.0 else BASE_FOV
     # the sniper scope snaps (quickscope), the rifle zoom eases
     var zoom_rate := 30.0 if arsenal.data().scope_overlay else 14.0
     camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * zoom_rate))
+
+
+## Rig pose from the current look, recoil, shake, bob and swap dip.
+func _pose_camera() -> void:
+    var dip := _dip * _dip * 0.045
+    _pitch_node.rotation = Vector3(character.pitch + _recoil + _shake_offset.x - dip * 0.35, _shake_offset.y, _shake_offset.z)
+    _pitch_node.position = Vector3(0, _bob - dip, 0)
 
 
 func apply_kick(deg: float) -> void:

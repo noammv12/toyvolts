@@ -44,9 +44,10 @@ var last_hit_weapon := ""
 var respawn_at_msec := 0
 var net_id := 0             ## unique per match: humans = peer id, bots/dummies = 1000+
 var peer_id := 0            ## multiplayer peer that owns this toy (0 = server-side bot/dummy)
-var controller: Node = null ## PlayerController / NetInput: feed(self, delta) runs each physics tick
+var controller: Object = null ## PlayerController / NetInput: feed(self, delta) runs each physics tick
 var puppet := false         ## client-side copy of a server-simulated toy (no simulation)
 var puppet_on_floor := true
+var predicted := false      ## client-side local toy: simulated here, reconciled with the server
 
 # controller inputs
 var yaw := 0.0
@@ -105,9 +106,12 @@ func _physics_process(delta: float) -> void:
     if controller != null:
         controller.feed(self, delta)
     if puppet:
+        Net.puppet_step(self)
         rotation.y = yaw
         weapon_holder.rotation.x = pitch
         return
+    if predicted:
+        Net.client_before_simulate(self)
     rotation.y = yaw
     weapon_holder.rotation.x = pitch
     protection_left = maxf(0.0, protection_left - delta)
@@ -155,6 +159,8 @@ func _physics_process(delta: float) -> void:
 
     _was_on_floor = is_on_floor()
     move_and_slide()
+    if predicted:
+        Net.client_after_simulate(self)
 
 
 func max_jumps() -> int:
@@ -252,15 +258,46 @@ func heal(amount: float) -> void:
 
 func _die(killer: Character) -> void:
     Game.trace("die:" + display_name)
-    alive = false
     deaths += 1
     if killer != null and killer != self:
         killer.kills += 1
+    _die_visual()
+    drop_battery()
+    died.emit(self, killer)
+
+
+## Client: the server says this toy took damage (hp is the server's value after the hit).
+func damage_remote(amount: float, source: Character, headshot: bool, hp_after: float) -> void:
+    if not alive:
+        return
+    hp = hp_after
+    _flash = 1.0
+    if source != null and source.arsenal != null:
+        last_hit_weapon = source.arsenal.data().display_name
+    if amount >= 25.0:
+        figure.play_action("hit", 0.3)
+    damaged.emit(amount, source, headshot)
+    health_changed.emit(hp, max_hp)
+    if hp > 0.0:
+        Sfx.play("hurt", center(), -2.0, 0.12)
+
+
+## Client: the server says this toy fell apart (scores arrive separately).
+func die_remote(_killer: Character) -> void:
+    if not alive:
+        return
+    Sfx.play("death", center())
+    hp = 0.0
+    _die_visual()
+    health_changed.emit(hp, max_hp)
+
+
+func _die_visual() -> void:
+    alive = false
     velocity = Vector3.ZERO
     collision_layer = 0
     arsenal.trigger = false
     arsenal.alt = false
-    drop_battery()
     figure.play_death()
     _death_serial += 1
     var serial := _death_serial
@@ -268,7 +305,6 @@ func _die(killer: Character) -> void:
         if not alive and serial == _death_serial:
             Game.trace("hide:" + display_name)
             visible = false)
-    died.emit(self, killer)
 
 
 func respawn(at: Vector3, look_yaw := 0.0) -> void:

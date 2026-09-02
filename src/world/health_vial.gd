@@ -6,6 +6,8 @@ const HEAL := 30.0
 const LIFETIME := 20.0
 const TOON: Shader = preload("res://shaders/toon.gdshader")
 
+var net_id := 0
+var cosmetic := false     ## client copy: the server decides who drinks it
 var _t := 0.0
 var _base_y := 0.0
 
@@ -51,6 +53,8 @@ func _ready() -> void:
     body_entered.connect(_on_body_entered)
     get_tree().create_timer(LIFETIME).timeout.connect(queue_free)
     _base_y = position.y
+    if not cosmetic:
+        Net.vial_spawned.call_deferred(self)   # position is set by the spawner right after add_child
 
 
 func _process(delta: float) -> void:
@@ -60,8 +64,11 @@ func _process(delta: float) -> void:
 
 
 func _on_body_entered(body: Node3D) -> void:
+    if cosmetic or not Net.is_authority():
+        return
     var c := body as Character
     if c != null and c.alive and c.hp < c.max_hp:
         c.heal(HEAL)
         Sfx.play("vial_pickup", global_position)
+        Net.vial_taken(self)
         queue_free()

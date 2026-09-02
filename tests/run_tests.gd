@@ -13,6 +13,9 @@ func _ready() -> void:
     Arsenal.spread_scale = 0.0
     _check("sound bank loaded (%d streams)" % Sfx._streams.size(), Sfx._streams.size() >= 28)
     _test_weapon_state()
+    _test_net_codec()
+    _test_net_interp()
+    _test_net_input()
     await _test_practice_scene()
     await _test_wave_step()
     await _test_match()
@@ -75,6 +78,119 @@ func _test_weapon_state() -> void:
 
     var melee := WeaponState.new(WeaponDB.for_slot(1))
     _check("melee never needs ammo", melee.has_ammo() and not melee.can_reload())
+
+
+# ---- network: packet encoding, snapshot interpolation, server input queue ----------------
+
+func _test_net_codec() -> void:
+    var packet := {"seq": 70001, "yaw": 1.2345, "pitch": -0.5, "wish": Vector3(0.7071, 0.0, -0.7071),
+        "trigger": true, "alt": false, "jump": true, "jump_seq": 7, "select_seq": 3, "select_a": 1,
+        "select_b": 3, "reload_seq": 9, "aim_origin": Vector3(1.5, 2.25, -3.0), "aim_dir": Vector3(0.0, 0.6, -0.8)}
+    var bytes := NetCodec.encode_input(packet)
+    var back := NetCodec.decode_input(bytes)
+    _check("input packet is %d bytes" % bytes.size(), bytes.size() == 44)
+    _check("input packet round-trips (seq, look, buttons, counters)", back.seq == 70001
+        and is_equal_approx(back.yaw, 1.2345) and is_equal_approx(back.pitch, -0.5)
+        and back.trigger and not back.alt and back.jump and back.jump_seq == 7
+        and back.select_seq == 3 and back.select_a == 1 and back.select_b == 3 and back.reload_seq == 9)
+    _check("input packet keeps the wish direction within 1%%", (back.wish - packet.wish).length() < 0.01)
+    _check("input packet keeps the aim ray", back.aim_origin.is_equal_approx(packet.aim_origin)
+        and back.aim_dir.is_equal_approx(packet.aim_dir))
+    _check("truncated input packet decodes to nothing", NetCodec.decode_input(bytes.slice(0, 20)).is_empty())
+
+    var toys := []
+    for i in 3:
+        toys.append({"net_id": [1, 82311, -2][i], "pos": Vector3(i, 0.5, -i * 3.0), "vel": Vector3(7, -2, 0),
+            "yaw": 0.1 * i, "pitch": -0.2, "slot": 3, "hp": 61.4, "alive": true, "on_floor": i == 0,
+            "carrying": i == 2, "scope": 2, "aiming": true, "clip": 3, "reserve": 12, "ack_seq": 4200 + i,
+            "jumps_used": 1})
+    var sb := NetCodec.encode_snapshot(9001, 123.5, toys)
+    var snap := NetCodec.decode_snapshot(sb)
+    _check("snapshot with 3 toys is %d bytes" % sb.size(), sb.size() == 9 + 3 * 47)
+    var ok: bool = snap.tick == 9001 and is_equal_approx(snap.time_left, 123.5) and snap.toys.size() == 3
+    if ok:
+        var t: Dictionary = snap.toys[1]
+        ok = t.net_id == 82311 and t.pos.is_equal_approx(Vector3(1, 0.5, -3)) and t.vel.is_equal_approx(Vector3(7, -2, 0)) \
+            and is_equal_approx(t.yaw, 0.1) and t.slot == 3 and t.hp == 62.0 and t.alive and not t.on_floor \
+            and not t.carrying and t.scope == 2 and t.aiming and t.clip == 3 and t.reserve == 12 and t.ack_seq == 4201 \
+            and t.jumps_used == 1 and snap.toys[2].net_id == -2 and snap.toys[2].carrying and snap.toys[0].on_floor
+    _check("snapshot round-trips (ids incl. negative bots, flags, ammo, ack)", ok)
+
+
+func _test_net_interp() -> void:
+    var it := NetInterp.new()
+    var mk := func(x: float, yaw: float) -> Dictionary:
+        return {"pos": Vector3(x, 0, 0), "vel": Vector3(60, 0, 0), "yaw": yaw, "pitch": 0.0, "slot": 2,
+            "hp": 100.0, "alive": true, "on_floor": true, "carrying": false, "scope": 0, "aiming": false}
+    it.push(100, mk.call(0.0, 0.0))
+    it.push(110, mk.call(10.0, 1.0))
+    it.push(105, mk.call(99.0, 9.0))   # late packet: ignored
+    var mid := it.sample_at(105.0)
+    _check("interp: midpoint between two snapshots", mid.pos.is_equal_approx(Vector3(5, 0, 0)) and is_equal_approx(mid.yaw, 0.5))
+    _check("interp: late packet dropped", it.latest_tick() == 110)
+    var beyond := it.sample_at(120.0)
+    _check("interp: extrapolates at most %d ticks along the velocity" % int(NetInterp.MAX_EXTRAPOLATE),
+        beyond.pos.is_equal_approx(Vector3(10 + 60 * NetInterp.MAX_EXTRAPOLATE / 60.0, 0, 0)))
+    it.advance(1.0)
+    _check("interp: clock starts DELAY_TICKS behind the newest snapshot (%.1f)" % it.render_tick,
+        is_equal_approx(it.render_tick, 110 - NetInterp.DELAY_TICKS))
+    for i in 20:
+        it.push(111 + i, mk.call(11.0 + i, 0.0))
+        it.advance(1.0)
+    _check("interp: clock keeps pace with a steady stream (%.1f vs %d)" % [it.render_tick, it.latest_tick()],
+        absf((it.latest_tick() - NetInterp.DELAY_TICKS) - it.render_tick) < 1.5)
+    var wrap := NetInterp.lerp_state(mk.call(0.0, 3.0), mk.call(0.0, -3.0), 0.5)
+    _check("interp: yaw blends the short way round (%.2f)" % wrap.yaw, absf(absf(wrap.yaw) - PI) < 0.01)
+
+
+func _test_net_input() -> void:
+    var ni := NetInput.new()
+    var c := TARGET_DUMMY.instantiate() as Character
+    add_child(c)
+    await get_tree().process_frame
+    var base := {"seq": 1, "yaw": 0.3, "pitch": 0.1, "wish": Vector3(1, 0, 0), "trigger": false, "alt": false,
+        "jump": false, "jump_seq": 5, "select_seq": 2, "select_a": 0, "select_b": 0, "reload_seq": 1,
+        "aim_origin": Vector3.ZERO, "aim_dir": Vector3.FORWARD}
+    ni.push(base.duplicate())
+    ni.feed(c, 1.0 / 60.0)
+    _check("net input: first packet primes the counters without a jump", not c.jump_pressed and is_equal_approx(c.yaw, 0.3)
+        and c.wish_dir.is_equal_approx(Vector3(1, 0, 0)) and ni.last_seq == 1)
+    var p2 := base.duplicate()
+    p2.seq = 2
+    p2.jump_seq = 6
+    p2.trigger = true
+    ni.push(p2)
+    ni.feed(c, 1.0 / 60.0)
+    _check("net input: jump counter edge presses jump once", c.jump_pressed and c.arsenal.trigger)
+    c.jump_pressed = false
+    var p3 := base.duplicate()
+    p3.seq = 3
+    p3.jump_seq = 6
+    ni.push(p3)
+    ni.feed(c, 1.0 / 60.0)
+    _check("net input: same counter again does not re-jump", not c.jump_pressed and not c.arsenal.trigger)
+    var p4 := base.duplicate()
+    p4.seq = 4
+    p4.select_seq = 3
+    p4.select_a = 1
+    p4.select_b = 3
+    ni.push(p4)
+    ni.feed(c, 1.0 / 60.0)
+    _check("net input: two selects in one packet apply in order (slot %d, previous %d)" % [c.arsenal.slot, c.arsenal.previous_slot],
+        c.arsenal.slot == 3 and c.arsenal.previous_slot == 1)
+    ni.push({"seq": 2, "yaw": 9.0})   # stale
+    _check("net input: stale packets are dropped", ni.packets == 4)
+    ni.feed(c, 1.0 / 60.0)
+    _check("net input: starved tick repeats the last held state", ni.last_seq == 4 and is_equal_approx(c.yaw, 0.3))
+    for i in range(5, 11):
+        var p := base.duplicate()
+        p.seq = i
+        ni.push(p)
+    _check("net input: queue caps at %d" % NetInput.MAX_QUEUE, ni.queue.size() == NetInput.MAX_QUEUE)
+    ni.feed(c, 1.0 / 60.0)
+    _check("net input: catches up two per tick when behind", ni.queue.size() == NetInput.MAX_QUEUE - 2)
+    c.queue_free()
+    await get_tree().process_frame
 
 
 # ---- practice scene: weapons against a dummy ------------------------------------

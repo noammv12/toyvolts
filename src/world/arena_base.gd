@@ -8,7 +8,7 @@ const DUMMY: PackedScene = preload("res://src/world/target_dummy.tscn")
 const BOT: PackedScene = preload("res://src/bots/bot.tscn")
 const CHARACTER: PackedScene = preload("res://src/character/character.tscn")
 const PLAYER_COLOR := Color(0.95, 0.42, 0.2)
-const BOT_NET_ID_BASE := 1000
+const BOT_NET_ID_BASE := -1     ## bots count down from -1 (peer ids are positive)
 const NAV_GROUP := "navmesh_source"
 
 const TEAM_COLORS := {1: Color(0.95, 0.42, 0.2), 2: Color(0.25, 0.5, 0.95)}
@@ -48,16 +48,20 @@ func _ready() -> void:
         match_node.spawn_points = spawns
         match_node.base_positions = base_positions
     _populate()
+    Net.on_arena_ready(self)
 
 
 ## Who lives here at the start: the local human, bots by mode, dummies in practice.
 func _populate() -> void:
+    if Net.is_client():
+        return   # the host spawns everyone and tells us
     var teams := Game.mode in ["tdm", "ctb"]
     var team := 1 if teams else 0
     var p := _side_spawn(team, 0) if (Game.mode == "ctb" and base_positions.has(team)) else spawns[0]
     if player_start != Vector3.INF and Game.mode != "ctb":
         p = player_start
-    spawn_human(1, 1, Game.player_name, Game.skin, team, p, atan2(p.x, p.z), true)
+    if Net.has_local_human():
+        spawn_human(1, 1, Game.player_name, Game.skin, team, p, atan2(p.x, p.z), true)
     match Game.mode:
         "ffa", "elim":
             _spawn_bots(Game.bot_count, false)
@@ -117,16 +121,19 @@ func _build_ctb() -> void:
         b.team = team
         b.position = base_positions[team]
         add_child(b)
-    for p in battery_spawns:
+    for i in battery_spawns.size():
         var cell := Battery.new()
-        cell.home = p
-        cell.position = p
+        cell.net_index = i
+        cell.home = battery_spawns[i]
+        cell.position = battery_spawns[i]
         add_child(cell)
 
 
 func _build_capsules() -> void:
-    for spec in capsule_spawns:
+    for i in capsule_spawns.size():
+        var spec: Array = capsule_spawns[i]
         var cap := ItemCapsule.new()
+        cap.net_index = i
         cap.kind = spec[1]
         cap.position = spec[0]
         add_child(cap)
@@ -144,7 +151,7 @@ func sun() -> DirectionalLight3D:
 func _spawn_bots(count: int, teams: bool) -> void:
     for i in count:
         var b := BOT.instantiate() as Bot
-        b.net_id = BOT_NET_ID_BASE + i
+        b.net_id = BOT_NET_ID_BASE - i
         b.display_name = Bot.NAMES[i % Bot.NAMES.size()]
         b.model_id = Skins.ALL[i % Skins.ALL.size()].id
         var range: Array = Bot.SKILL_RANGES.get(Game.bot_difficulty, Bot.SKILL_RANGES["normal"])

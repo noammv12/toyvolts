@@ -12,6 +12,7 @@ const TOON: Shader = preload("res://shaders/toon.gdshader")
 
 var home := Vector3.ZERO
 var carrier: Character = null
+var net_index := 0            ## index in the map's battery list (same order on every peer)
 var _t := 0.0
 var _dropped_left := -1.0
 var _visual: Node3D
@@ -45,7 +46,7 @@ func _process(delta: float) -> void:
     if carrier == null:
         _visual.rotation.y += delta * 1.6
         _visual.position.y = 0.55 + sin(_t * 2.5) * 0.08
-        if _dropped_left > 0.0:
+        if _dropped_left > 0.0 and Net.is_authority():
             _dropped_left -= delta
             if _dropped_left <= 0.0:
                 return_home()
@@ -57,7 +58,7 @@ func _on_body_entered(body: Node3D) -> void:
     var c := body as Character
     if c == null or not c.alive or carrier != null or c.carrying != null or c is TargetDummy:
         return
-    if not Game.match_active:
+    if not Game.match_active or not Net.is_authority():
         return
     pick_up.call_deferred(c)   # reparenting a CollisionObject inside a physics callback is not allowed
 
@@ -78,6 +79,7 @@ func pick_up(c: Character) -> void:
     _beam.visible = false
     _light.visible = false
     Sfx.play("vial_pickup", global_position, 2.0)
+    Net.battery_changed(self)
     picked_up.emit(self, c)
 
 
@@ -96,7 +98,23 @@ func drop(at: Vector3) -> void:
     _light.visible = true
     _dropped_left = RETURN_AFTER if at.distance_to(home) > 1.0 else -1.0
     set_deferred("monitoring", true)
+    Net.battery_changed(self)
     dropped.emit(self, at)
+
+
+## Client: mirror the server's state (carried by `by`, or loose at `at`).
+func apply_remote(carried: bool, by: Character, at: Vector3) -> void:
+    if carried and by != null:
+        if carrier == by:
+            return
+        if carrier != null:
+            drop(at)
+        pick_up(by)
+    else:
+        if carrier == null and global_position.distance_to(at) < 0.05:
+            return
+        drop(at)
+        _dropped_left = -1.0
 
 
 func return_home() -> void:

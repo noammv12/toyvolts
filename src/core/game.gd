@@ -94,6 +94,18 @@ func _ready() -> void:
         fullscreen = has_arg("fullscreen")
     apply_display()
     _honor_gpu_choice()
+    _start_network_from_args.call_deferred()
+
+
+## `--server` (dedicated, no local toy) / `--host` / `--join=ip:port`, with `--port=`.
+func _start_network_from_args() -> void:
+    var port := int(arg("port", str(Net.DEFAULT_PORT)))
+    if has_arg("server"):
+        Net.host(port, true)
+    elif has_arg("host"):
+        Net.host(port, false)
+    elif has_arg("join"):
+        Net.join(arg("join"))
 
 
 ## The adapter can only be picked at launch (--gpu-index). If the saved choice is not the one
@@ -344,6 +356,7 @@ func map_scene() -> String:
 func to_menu() -> void:
     get_tree().paused = false
     set_mouse_captured(false)
+    Net.leave()
     get_tree().change_scene_to_file.call_deferred(MENU_SCENE)
 
 

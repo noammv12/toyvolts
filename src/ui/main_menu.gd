@@ -26,6 +26,7 @@ var _skin_name: Label
 var _skin_blurb: Label
 var _settings: SettingsPanel
 var _settings_dim: ColorRect
+var _lobby: LobbyPanel
 
 
 func open_settings() -> void:
@@ -33,17 +34,43 @@ func open_settings() -> void:
     _settings.visible = true
 
 
+func open_lobby() -> void:
+    _settings_dim.visible = true
+    _lobby.visible = true
+    _lobby.refresh()
+
+
 func _ready() -> void:
     Game.set_mouse_captured(false)
-    if Game.has_arg("mode"):
+    if Game.has_arg("server") or Game.has_arg("host"):
+        # the network starts one frame after Game._ready: hand the kick-off to the lobby logic
+        _autostart_hosted.call_deferred()
+        return
+    if Game.has_arg("mode") and not Game.has_arg("join"):
         Game.start_match(Game.mode, Game.bot_count)
         return
     _mode = Game.mode if Game.mode != "practice" else "ffa"
     _bots = Game.bot_count
     _build()
+    if Game.has_arg("join"):
+        open_lobby()
+
+
+func _autostart_hosted() -> void:
+    if Net.is_server_role():
+        Net.start_match()
+    else:
+        push_error("[net] could not host: " + Net.last_error)
+        get_tree().quit(1)
 
 
 func _build() -> void:
+    if Game.headless and Game.has_arg("join"):
+        _lobby = LobbyPanel.new()   # no UI needed: the panel only reacts to Net signals
+        _settings_dim = ColorRect.new()
+        add_child(_settings_dim)
+        add_child(_lobby)
+        return
     var bg := ColorRect.new()
     bg.color = Color(0.11, 0.13, 0.18)
     bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -174,6 +201,14 @@ func _build() -> void:
         Game.save_settings()
         Game.start_match(_mode, _bots if _mode != "practice" else 0))
     left.add_child(start)
+    var online := Button.new()
+    online.text = "Online  (host / join)"
+    online.custom_minimum_size = Vector2(330, 40)
+    online.add_theme_font_size_override("font_size", 19)
+    online.pressed.connect(func() -> void:
+        Sfx.play_ui("ui_click")
+        open_lobby())
+    left.add_child(online)
     var settings_btn := Button.new()
     settings_btn.text = "Settings"
     settings_btn.custom_minimum_size = Vector2(330, 34)
@@ -201,6 +236,15 @@ func _build() -> void:
         _settings.visible = false
         _settings_dim.visible = false)
     add_child(_settings)
+    _lobby = LobbyPanel.new()
+    _lobby.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+    _lobby.grow_horizontal = Control.GROW_DIRECTION_BOTH
+    _lobby.grow_vertical = Control.GROW_DIRECTION_BOTH
+    _lobby.visible = false
+    _lobby.closed.connect(func() -> void:
+        _lobby.visible = false
+        _settings_dim.visible = false)
+    add_child(_lobby)
 
     # ---- right column: figure select + preview
     var right := VBoxContainer.new()

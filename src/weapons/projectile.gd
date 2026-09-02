@@ -9,6 +9,7 @@ const TOON: Shader = preload("res://shaders/toon.gdshader")
 
 var data: WeaponData
 var shooter: Character
+var cosmetic := false      ## client copy: flies and explodes visually, hurts nobody
 var velocity := Vector3.ZERO
 var age := 0.0
 var _exploded := false
@@ -74,14 +75,15 @@ func _physics_process(delta: float) -> void:
 func _explode(pos: Vector3, normal: Vector3, direct_target: Character) -> void:
     _exploded = true
     var center := pos + normal * 0.12
-    if direct_target != null and data.damage > 0.0 and is_instance_valid(shooter):
+    if direct_target != null and data.damage > 0.0 and is_instance_valid(shooter) and not cosmetic:
         var result := direct_target.take_damage(
             data.damage, shooter, pos, velocity.normalized() * data.knockback, false)
         if result.applied and shooter.arsenal:
             shooter.arsenal.hit_confirmed.emit(result.killed, false)
     # the direct target also takes splash: a direct rocket is nearly lethal, a near miss is not
-    Damage.splash(get_tree(), center, data.splash_radius, data.splash_damage,
-        shooter if is_instance_valid(shooter) else null, data.knockback, null)
+    if not cosmetic:
+        Damage.splash(get_tree(), center, data.splash_radius, data.splash_damage,
+            shooter if is_instance_valid(shooter) else null, data.knockback, null)
     Vfx.explosion(center, data.splash_radius)
     Sfx.play("explosion", center, 0.0, 0.1)
     Vfx.release_trail(_trail)

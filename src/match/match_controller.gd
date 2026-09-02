@@ -7,6 +7,8 @@ signal kill_feed(text: String)
 signal match_ended(text: String, winner: Character)   ## winner null for team / draw results
 signal round_ended(text: String, winner: Character)
 signal announce(text: String, who: Character)         ## objective events (battery taken / charged)
+signal round_started()
+signal restarted()
 
 const TEAM_NAMES := {1: "RED", 2: "BLUE"}
 const ELIM_ROUND_TIME := 90.0
@@ -42,6 +44,8 @@ func _ready() -> void:
             score_limit = CTB_TO_WIN
         _:
             score_limit = 0
+    if Game.has_arg("score_limit"):   # debug / smoke tests: end the match quickly
+        score_limit = int(Game.arg("score_limit"))
     time_left = time_limit
     Game.match_active = true
     get_tree().node_added.connect(_on_node_added)
@@ -54,7 +58,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-    if not active or mode == "practice" or not round_active:
+    if not active or mode == "practice" or not round_active or Net.is_client():
         return
     time_left -= delta
     if time_left <= 0.0:
@@ -114,6 +118,8 @@ func _register(c: Character) -> void:
 
 
 func _on_died(victim: Character, killer: Character) -> void:
+    if Net.is_client():
+        return
     if killer != null and killer != victim:
         kill_feed.emit("%s  [%s]  %s" % [killer.display_name, victim.last_hit_weapon, victim.display_name])
     else:
@@ -329,6 +335,7 @@ func _end_round(round_winner: Character) -> void:
         respawn_now(c)
     time_left = time_limit
     round_active = true
+    round_started.emit()
 
 
 func _end(text: String, who: Character = null) -> void:
@@ -364,3 +371,4 @@ func restart() -> void:
     round_active = true
     active = true
     Game.match_active = true
+    restarted.emit()

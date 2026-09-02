@@ -79,7 +79,7 @@ func open() -> void:
     _root.visible = true
     _buttons.visible = true
     _settings.visible = false
-    get_tree().paused = true
+    get_tree().paused = not Net.is_online()   # online the world keeps moving
     Game.set_mouse_captured(false)
 
 

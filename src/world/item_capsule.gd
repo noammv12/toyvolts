@@ -8,6 +8,7 @@ const HEAL := 35.0
 const TOON: Shader = preload("res://shaders/toon.gdshader")
 
 @export var kind := "health"   ## health | ammo
+var net_index := 0             ## index in the map's capsule list (same order on every peer)
 var _t := 0.0
 var _respawn_left := 0.0
 var _visual: Node3D
@@ -36,9 +37,11 @@ func is_available() -> bool:
 func _process(delta: float) -> void:
     _t += delta
     if _respawn_left > 0.0:
-        _respawn_left -= delta
-        if _respawn_left <= 0.0:
-            _show(true)
+        if Net.is_authority():
+            _respawn_left -= delta
+            if _respawn_left <= 0.0:
+                _show(true)
+                Net.capsule_changed(self)
         return
     _visual.rotation.y += delta * 1.8
     _visual.position.y = 0.6 + sin(_t * 2.8) * 0.07
@@ -46,7 +49,7 @@ func _process(delta: float) -> void:
 
 func _on_body_entered(body: Node3D) -> void:
     var c := body as Character
-    if c == null or not c.alive or _respawn_left > 0.0 or c is TargetDummy:
+    if c == null or not c.alive or _respawn_left > 0.0 or c is TargetDummy or not Net.is_authority():
         return
     if kind == "health":
         if c.hp >= c.max_hp:
@@ -59,6 +62,17 @@ func _on_body_entered(body: Node3D) -> void:
     Vfx.jump_puff(global_position + Vector3(0, 0.2, 0))
     _respawn_left = RESPAWN
     _show(false)
+    Net.capsule_changed(self)
+
+
+## Client: mirror the server (a hidden capsule waits for the server's "back" event).
+func set_available_remote(on: bool) -> void:
+    if on == is_available():
+        return
+    _respawn_left = 0.0 if on else RESPAWN
+    _show(on)
+    if not on:
+        Sfx.play("vial_pickup", global_position, 0.0 if kind == "health" else -3.0)
 
 
 func _show(on: bool) -> void:

@@ -40,6 +40,8 @@ func _on_body_entered(body: Node3D) -> void:
     var c := body as Character
     if c == null or not c.alive or c.carrying == null or c.team != team or not Game.match_active:
         return
+    if not Net.is_authority():
+        return
     _pulse = 1.0
     charged.emit.call_deferred(self, c)   # the match controller reparents the cell: not inside a physics callback
 
