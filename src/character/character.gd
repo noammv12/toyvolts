@@ -34,6 +34,8 @@ var protection_left := 0.0
 var kills := 0
 var deaths := 0
 var rounds_won := 0
+var captures := 0            ## Capture the Battery deliveries
+var carrying: Battery = null
 var spawn_home := Vector3.ZERO
 var last_hit_weapon := ""
 var respawn_at_msec := 0
@@ -54,6 +56,7 @@ var _step_t := 0.0
 @onready var arsenal: Arsenal = $Arsenal
 @onready var weapon_holder: Node3D = $WeaponHolder
 @onready var figure: Figure = $Figure
+@onready var battery_mount: Node3D = $BatteryMount
 
 
 func _ready() -> void:
@@ -95,7 +98,7 @@ func _physics_process(delta: float) -> void:
         jump_pressed = false
         return
 
-    var wish := wish_dir * run_speed * arsenal.data().run_speed_mult
+    var wish := wish_dir * run_speed * arsenal.data().run_speed_mult * (0.9 if carrying != null else 1.0)
     var accel := ground_accel if is_on_floor() else air_accel
     velocity.x = move_toward(velocity.x, wish.x, accel * delta)
     velocity.z = move_toward(velocity.z, wish.z, accel * delta)
@@ -188,6 +191,11 @@ func take_damage(amount: float, source: Character, _hit_pos: Vector3, impulse: V
     return {"applied": true, "killed": false}
 
 
+func drop_battery() -> void:
+    if carrying != null:
+        carrying.drop.call_deferred(global_position + Vector3(0, 0.1, 0))
+
+
 func heal(amount: float) -> void:
     if alive:
         hp = minf(max_hp, hp + amount)
@@ -204,6 +212,7 @@ func _die(killer: Character) -> void:
     collision_layer = 0
     arsenal.trigger = false
     arsenal.alt = false
+    drop_battery()
     figure.play_death()
     _death_serial += 1
     var serial := _death_serial

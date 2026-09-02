@@ -90,6 +90,25 @@ func refill_all() -> void:
         s.refill()
 
 
+## Ammo capsule: add `fraction` of every weapon's max reserve (gatling: belt). False if full.
+func top_up_reserves(fraction: float) -> bool:
+    var took := false
+    for s in states:
+        if not s.uses_ammo():
+            continue
+        if s.data.reserve > 0:
+            var add := mini(int(ceil(s.data.reserve * fraction)), s.data.reserve - s.reserve)
+            if add > 0:
+                s.reserve += add
+                took = true
+        else:
+            var add := mini(int(ceil(s.data.clip_size * fraction)), s.data.clip_size - s.clip)
+            if add > 0:
+                s.clip += add
+                took = true
+    return took
+
+
 ## Current zoom FOV for the camera, or 0 when not zoomed.
 func zoom_fov() -> float:
     var d := data()

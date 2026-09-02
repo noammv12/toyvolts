@@ -257,9 +257,35 @@ class Radar extends Control:
             var col := Color(0.4, 0.7, 1.0) if ally else Color(1.0, 0.3, 0.25)
             draw_circle(p, 4.0, Color(0, 0, 0, 0.6))
             draw_circle(p, 3.0, col)
+        # objectives: loose batteries (yellow diamonds), bases (team rings), carriers (yellow dot)
+        if Game.mode == "ctb":
+            var m := player.get_tree().get_first_node_in_group("match") as MatchController
+            if m != null:
+                for team in m.base_positions:
+                    var p := _radar_point(c, m.base_positions[team])
+                    if p != Vector2.INF:
+                        draw_arc(p, 6.0, 0.0, TAU, 16, ArenaBase.TEAM_COLORS[team], 2.0)
+                for b in m.loose_batteries():
+                    var p := _radar_point(c, b.global_position)
+                    if p != Vector2.INF:
+                        var d := PackedVector2Array([p + Vector2(0, -6), p + Vector2(5, 0), p + Vector2(0, 6), p + Vector2(-5, 0)])
+                        draw_colored_polygon(d, Color(1, 0.85, 0.2))
+                for node in player.get_tree().get_nodes_in_group("characters"):
+                    var ch := node as Character
+                    if ch != null and ch.carrying != null and ch != player:
+                        var p := _radar_point(c, ch.global_position)
+                        if p != Vector2.INF:
+                            draw_circle(p, 5.5, Color(1, 0.85, 0.2))
         # player arrow
         var pts := PackedVector2Array([c + Vector2(0, -7), c + Vector2(5, 5), c + Vector2(-5, 5)])
         draw_colored_polygon(pts, Color(1, 0.85, 0.3))
+
+    func _radar_point(c: Vector2, world: Vector3) -> Vector2:
+        var rel := world - player.global_position
+        var flat := Vector2(rel.x, rel.z)
+        if flat.length() > RANGE_M:
+            flat = flat.normalized() * RANGE_M   # clamp to the rim so far objectives still point the way
+        return c + flat.rotated(player.yaw) / RANGE_M * R
 
 
 # ---- lifecycle -----------------------------------------------------------------
@@ -281,7 +307,13 @@ func _ready() -> void:
         _match.kill_feed.connect(_on_kill_feed)
         _match.match_ended.connect(_on_match_ended)
         _match.round_ended.connect(_on_round_ended)
+        _match.announce.connect(_on_announce)
     Game.notice.connect(_on_notice)
+
+
+func _on_announce(text: String) -> void:
+    _popup(text, Color(1.0, 0.85, 0.3))
+    _popup_until = Time.get_ticks_msec() / 1000.0 + 2.5
 
 
 func _on_notice(text: String) -> void:

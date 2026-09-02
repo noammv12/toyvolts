@@ -7,6 +7,7 @@ const MODES := [
     ["ffa", "Free For All", "Every toy for itself. First to 20."],
     ["tdm", "Team Deathmatch", "Red vs Blue. First team to 30."],
     ["elim", "Elimination", "No respawns. Last toy standing wins the round; 5 rounds."],
+    ["ctb", "Capture the Battery", "Red vs Blue. Grab a battery, run it to your charging pad. First to 5."],
     ["practice", "Practice", "Target dummies, no pressure."],
 ]
 

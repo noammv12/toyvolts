@@ -27,6 +27,9 @@ shape = SubResource("head_shape")
 [node name="Figure" type="Node3D" parent="."]
 script = ExtResource("3")
 
+[node name="BatteryMount" type="Node3D" parent="."]
+position = Vector3(0, 1.05, 0.34)
+
 [node name="WeaponHolder" type="Node3D" parent="."]
 position = Vector3(0.42, 1.05, -0.1)
 

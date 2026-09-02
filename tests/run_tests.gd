@@ -17,6 +17,7 @@ func _ready() -> void:
     await _test_match()
     await _test_elimination()
     await _test_toy_room()
+    await _test_ctb()
     print("\n%d checks, %d failed" % [_count, _fails])
     get_tree().quit(1 if _fails > 0 else 0)
 
@@ -347,6 +348,86 @@ func _test_toy_room() -> void:
         if b.global_position.y > -0.5 and b.global_position.y < 8.0:
             grounded += 1
     _check("bots stay inside the room (%d/%d)" % [grounded, bots.size()], grounded == bots.size())
+    room.queue_free()
+    await get_tree().process_frame
+
+
+# ---- capture the battery + item capsules --------------------------------------------
+
+func _test_ctb() -> void:
+    Game.mode = "ctb"
+    Game.bot_count = 2
+    var room: Node3D = (load("res://src/world/toy_room.tscn") as PackedScene).instantiate()
+    add_child(room)
+    await get_tree().process_frame
+    var player := room.get_node("Player") as Player
+    player.input_enabled = false
+    var m := room.get_node("Match") as MatchController
+    Game.match_active = false   # freeze bots while we drive the player
+    await get_tree().physics_frame
+    var batteries := get_tree().get_nodes_in_group("batteries")
+    var bases := get_tree().get_nodes_in_group("battery_bases")
+    var capsules := get_tree().get_nodes_in_group("capsules")
+    _check("ctb: 3 batteries, 2 bases, capsules placed (%d/%d/%d)" % [batteries.size(), bases.size(), capsules.size()],
+        batteries.size() == 3 and bases.size() == 2 and capsules.size() >= 5)
+    _check("ctb: player is red and bots split by team", player.team == 1 and m.mode == "ctb" and m.score_limit == 5)
+    var blue_on_north := true
+    for b in get_tree().get_nodes_in_group("bots"):
+        if b.team == 2 and b.global_position.z > 0.0:
+            blue_on_north = false
+    _check("ctb: blue bots start on the blue half", blue_on_north)
+    Game.match_active = true
+    # walk onto the west battery
+    var cell := batteries[1] as Battery
+    player.global_position = cell.global_position + Vector3(0, 0.05, 0)
+    for i in 4:
+        await get_tree().physics_frame
+    _check("ctb: stepping on a battery picks it up", player.carrying == cell and not cell.is_loose() and cell.get_parent() == player.battery_mount)
+    _check("ctb: carrier runs slower", is_equal_approx(player.run_speed * (0.9), 6.3))
+    var loose := m.loose_batteries().size()
+    _check("ctb: 2 loose batteries remain (%d)" % loose, loose == 2)
+    # deliver to the red pad
+    player.global_position = m.base_positions[1] + Vector3(0, 0.3, 0)
+    for i in 4:
+        await get_tree().physics_frame
+    _check("ctb: charging at the red pad scores (red %d)" % m.team_score(1), m.team_score(1) == 1 and player.captures == 1)
+    _check("ctb: battery returns home after a charge", player.carrying == null and cell.is_loose() and cell.global_position.distance_to(cell.home) < 0.5)
+    _check("ctb: status line shows the score", m.status_line(player).begins_with("BATTERY  RED 1"))
+    # a dying carrier drops the cell where they fell
+    player.global_position = cell.global_position + Vector3(0, 0.05, 0)
+    for i in 4:
+        await get_tree().physics_frame
+    var drop_spot := Vector3(-8, 0.3, 0)
+    player.global_position = drop_spot
+    await get_tree().physics_frame
+    player.take_damage(1000.0, null, player.center(), Vector3.ZERO, false)
+    await get_tree().physics_frame
+    await get_tree().physics_frame
+    _check("ctb: death drops the battery on the spot", player.carrying == null and cell.is_loose() and cell.global_position.distance_to(drop_spot) < 1.0)
+    # health capsule heals, ammo capsule tops up reserves, both vanish then respawn
+    for v in get_tree().get_nodes_in_group("pickups"):
+        if v is HealthVial:
+            v.queue_free()   # the death just dropped one under the player
+    await get_tree().physics_frame
+    player.alive = true
+    player.collision_layer = Character.LAYER_CHARACTER
+    player.hp = 50.0
+    var health_cap: ItemCapsule = null
+    var ammo_cap: ItemCapsule = null
+    for c in capsules:
+        if c.kind == "health" and health_cap == null:
+            health_cap = c
+        if c.kind == "ammo" and ammo_cap == null:
+            ammo_cap = c
+    player.global_position = health_cap.global_position + Vector3(0, 0.05, 0)
+    for i in 4:
+        await get_tree().physics_frame
+    _check("capsule: health +35 (hp %.0f) and it vanishes" % player.hp, is_equal_approx(player.hp, 85.0) and not health_cap.is_available())
+    player.arsenal.states[1].reserve = 10
+    player.global_position = ammo_cap.global_position + Vector3(0, 0.05, 0)
+    for i in 4:
+        await get_tree().physics_frame
+    _check("capsule: ammo tops up the rifle reserve (%d)" % player.arsenal.states[1].reserve, player.arsenal.states[1].reserve == 51 and not ammo_cap.is_available())
     room.queue_free()
     await get_tree().process_frame
 

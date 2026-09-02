@@ -27,6 +27,13 @@ func _build() -> void:
         Vector3(18, 0.3, 17), Vector3(-9, 0.3, -21), Vector3(19, 0.3, -18), Vector3(-19, 0.3, 19),
     ]
     dummy_spots = [Vector3(5, 0.3, 8), Vector3(0, 2.3, 3), Vector3(-9, 0.3, -6)]
+    base_positions = {1: Vector3(0, 0.3, 21.0), 2: Vector3(0, 0.3, -21.0)}       # red south, blue north
+    battery_spawns = [Vector3(0, 2.1, 3), Vector3(-17, 0.3, 6), Vector3(17, 0.3, 4)]  # coffee-table top + wings
+    capsule_spawns = [
+        [Vector3(-3, 0.3, 12.5), "health"], [Vector3(9, 0.3, -18), "health"],
+        [Vector3(-14, 4.3, -13), "health"], [Vector3(20.5, 4.3, 9), "health"],
+        [Vector3(13, 4.3, -9), "ammo"], [Vector3(-13, 2.3, 17), "ammo"], [Vector3(2, 0.3, -4), "ammo"],
+    ]
     _shell()
     _rug_and_coffee_table()
     _bed_corner()

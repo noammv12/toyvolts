@@ -6,10 +6,12 @@ extends Node
 signal kill_feed(text: String)
 signal match_ended(text: String)
 signal round_ended(text: String)
+signal announce(text: String)        ## objective events (battery taken / charged)
 
 const TEAM_NAMES := {1: "RED", 2: "BLUE"}
 const ELIM_ROUND_TIME := 90.0
 const ELIM_ROUNDS_TO_WIN := 5
+const CTB_TO_WIN := 5
 
 @export var respawn_delay := 3.0
 var mode := "practice"
@@ -21,6 +23,7 @@ var winner_text := ""
 var spawn_points: Array[Vector3] = []
 var round_number := 1
 var round_active := true
+var base_positions := {}     ## team -> Vector3 (ctb)
 
 
 func _ready() -> void:
@@ -34,6 +37,8 @@ func _ready() -> void:
         "elim":
             score_limit = ELIM_ROUNDS_TO_WIN
             time_limit = ELIM_ROUND_TIME
+        "ctb":
+            score_limit = CTB_TO_WIN
         _:
             score_limit = 0
     time_left = time_limit
@@ -41,6 +46,10 @@ func _ready() -> void:
     get_tree().node_added.connect(_on_node_added)
     for node in get_tree().get_nodes_in_group("characters"):
         _register(node as Character)
+    for node in get_tree().get_nodes_in_group("battery_bases"):
+        _register_base(node as BatteryBase)
+    for node in get_tree().get_nodes_in_group("batteries"):
+        _register_battery(node as Battery)
 
 
 func _process(delta: float) -> void:
@@ -58,6 +67,46 @@ func _process(delta: float) -> void:
 func _on_node_added(node: Node) -> void:
     if node is Character:
         _register(node)
+    elif node is BatteryBase:
+        _register_base(node)
+    elif node is Battery:
+        _register_battery(node)
+
+
+func _register_base(b: BatteryBase) -> void:
+    if b != null and not b.charged.is_connected(_on_charged):
+        b.charged.connect(_on_charged)
+
+
+func _register_battery(b: Battery) -> void:
+    if b != null and not b.picked_up.is_connected(_on_battery_taken):
+        b.picked_up.connect(_on_battery_taken)
+        b.dropped.connect(_on_battery_dropped)
+
+
+func _on_battery_taken(_b: Battery, by: Character) -> void:
+    var who := "You" if by is Player else by.display_name
+    announce.emit("%s took a battery" % who)
+    kill_feed.emit("%s  [battery]" % by.display_name)
+
+
+func _on_battery_dropped(_b: Battery, _at: Vector3) -> void:
+    pass
+
+
+## A carrier stepped on their own pad: score, send the cell home.
+func _on_charged(base: BatteryBase, by: Character) -> void:
+    if not active or by.carrying == null:
+        return
+    var cell := by.carrying
+    by.captures += 1
+    cell.return_home()
+    Sfx.play("respawn", base.global_position, 4.0)
+    Vfx.explosion(base.global_position + Vector3(0, 0.6, 0), 1.2)
+    var who := "You" if by is Player else by.display_name
+    announce.emit("%s charged a battery!  %s %d - %d %s" % [who, TEAM_NAMES[1], team_score(1), team_score(2), TEAM_NAMES[2]])
+    kill_feed.emit("%s charged a battery" % by.display_name)
+    _check_win()
 
 
 func _register(c: Character) -> void:
@@ -102,11 +151,21 @@ func respawn_now(c: Character) -> void:
         c.respawn(p, atan2(p.x, p.z))  # face the arena centre
 
 
-## The spawn point farthest from any living enemy.
+## The spawn point farthest from any living enemy (on the team's own half in Capture the Battery).
 func pick_spawn(for_whom: Character) -> Vector3:
-    var best := spawn_points[0]
+    var candidates: Array[Vector3] = spawn_points
+    if mode == "ctb" and base_positions.has(for_whom.team) and base_positions.size() == 2:
+        var own: Vector3 = base_positions[for_whom.team]
+        var other: Vector3 = base_positions[2 if for_whom.team == 1 else 1]
+        var side: Array[Vector3] = []
+        for p in spawn_points:
+            if p.distance_to(own) < p.distance_to(other):
+                side.append(p)
+        if not side.is_empty():
+            candidates = side
+    var best := candidates[0]
     var best_score := -1.0
-    for p in spawn_points:
+    for p in candidates:
         var score := INF
         for node in get_tree().get_nodes_in_group("characters"):
             var c := node as Character
@@ -150,8 +209,26 @@ func ranking() -> Array[Character]:
 func team_score(team: int) -> int:
     var total := 0
     for c in contestants():
-        total += (c.rounds_won if mode == "elim" else c.kills) if c.team == team else 0
+        if c.team != team:
+            continue
+        match mode:
+            "elim":
+                total += c.rounds_won
+            "ctb":
+                total += c.captures
+            _:
+                total += c.kills
     return total
+
+
+## Loose batteries (on the floor), for bots and the radar.
+func loose_batteries() -> Array[Battery]:
+    var list: Array[Battery] = []
+    for node in get_tree().get_nodes_in_group("batteries"):
+        var b := node as Battery
+        if b != null and b.is_loose():
+            list.append(b)
+    return list
 
 
 func alive_count(team := 0) -> int:
@@ -173,6 +250,9 @@ func status_line(viewer: Character) -> String:
             return "FFA to %d   |   You %d   |   %s   |   %s" % [score_limit, viewer.kills, leader_text, clock]
         "tdm":
             return "RED %d  -  %d BLUE   |   to %d   |   %s" % [team_score(1), team_score(2), score_limit, clock]
+        "ctb":
+            var carry := "   |   CARRYING - get to your base!" if viewer.carrying != null else ""
+            return "BATTERY  RED %d  -  %d BLUE   |   to %d   |   %s%s" % [team_score(1), team_score(2), score_limit, clock, carry]
         "elim":
             var lead := ranking()
             var leader_text := "1st %s %d" % [lead[0].display_name, lead[0].rounds_won] if not lead.is_empty() else ""
@@ -188,7 +268,7 @@ func _check_win() -> void:
             if c.kills >= score_limit:
                 _end("YOU WIN" if c is Player else "%s WINS" % c.display_name.to_upper())
                 return
-    elif mode == "tdm":
+    elif mode == "tdm" or mode == "ctb":
         for team in [1, 2]:
             if team_score(team) >= score_limit:
                 _end("%s TEAM WINS" % TEAM_NAMES[team])
@@ -199,7 +279,7 @@ func _end_by_score() -> void:
     if mode == "ffa":
         var lead := ranking()
         _end("%s WINS" % lead[0].display_name.to_upper() if not lead.is_empty() else "TIME")
-    elif mode == "tdm":
+    elif mode == "tdm" or mode == "ctb":
         var r := team_score(1)
         var b := team_score(2)
         _end("RED TEAM WINS" if r > b else ("BLUE TEAM WINS" if b > r else "DRAW"))
@@ -242,7 +322,8 @@ func _end_round(winner: Character) -> void:
         return
     round_number += 1
     for node in get_tree().get_nodes_in_group("pickups"):
-        node.queue_free()
+        if node is HealthVial:
+            node.queue_free()
     for c in contestants():
         c.alive = false
         respawn_now(c)
@@ -264,11 +345,15 @@ func _end(text: String) -> void:
 
 func restart() -> void:
     for node in get_tree().get_nodes_in_group("pickups"):
-        node.queue_free()
+        if node is HealthVial:
+            node.queue_free()
+    for node in get_tree().get_nodes_in_group("batteries"):
+        node.return_home()
     for c in contestants():
         c.kills = 0
         c.deaths = 0
         c.rounds_won = 0
+        c.captures = 0
         c.alive = false
         respawn_now(c)
     time_left = time_limit

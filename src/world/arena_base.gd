@@ -16,6 +16,9 @@ const FFA_COLORS: Array[Color] = [
 
 var spawns: Array[Vector3] = []
 var dummy_spots: Array[Vector3] = []
+var battery_spawns: Array[Vector3] = []     ## Capture the Battery: where cells appear
+var base_positions := {}                    ## team -> Vector3 charging pad
+var capsule_spawns: Array = []              ## [Vector3, "health" or "ammo"]
 var box_count := 0
 var navmesh_polys := 0
 var _mats := {}
@@ -31,16 +34,21 @@ func _ready() -> void:
     _bake_navmesh()
     Vfx.warm_up()
     Game.probe_quality()
+    if Game.mode == "ctb":
+        _build_ctb()
+    if Game.mode != "elim":
+        _build_capsules()
     var match_node := get_node_or_null("Match") as MatchController
     if match_node:
         match_node.spawn_points = spawns
+        match_node.base_positions = base_positions
     var player := get_node_or_null("Player") as Player
     match Game.mode:
         "ffa":
             if player:
                 player.team = 0
             _spawn_bots(Game.bot_count, false)
-        "tdm":
+        "tdm", "ctb":
             if player:
                 player.team = 1
                 player.set_color(TEAM_COLORS[1])
@@ -61,6 +69,36 @@ func _ready() -> void:
 ## Map layout goes here.
 func _build() -> void:
     pass
+
+
+## Bases at the two first spawns unless the map placed them; batteries at battery_spawns
+## (default: the spawn centroid).
+func _build_ctb() -> void:
+    if base_positions.is_empty() and spawns.size() >= 2:
+        base_positions = {1: spawns[0], 2: spawns[1]}
+    if battery_spawns.is_empty():
+        var c := Vector3.ZERO
+        for p in spawns:
+            c += p
+        battery_spawns = [c / maxf(spawns.size(), 1.0)]
+    for team in base_positions:
+        var b := BatteryBase.new()
+        b.team = team
+        b.position = base_positions[team]
+        add_child(b)
+    for p in battery_spawns:
+        var cell := Battery.new()
+        cell.home = p
+        cell.position = p
+        add_child(cell)
+
+
+func _build_capsules() -> void:
+    for spec in capsule_spawns:
+        var cap := ItemCapsule.new()
+        cap.kind = spec[1]
+        cap.position = spec[0]
+        add_child(cap)
 
 
 func environment() -> Environment:
@@ -85,9 +123,24 @@ func _spawn_bots(count: int, teams: bool) -> void:
             b.team = 0
             b.body_color = FFA_COLORS[i % FFA_COLORS.size()]
         var p := spawns[(i + 1) % spawns.size()]
+        if teams and Game.mode == "ctb" and base_positions.has(b.team):
+            p = _side_spawn(b.team, i)
         b.position = p
         b.yaw = atan2(p.x, p.z)
         add_child(b)
+
+
+## Spawn points on a team's half (closer to its own base), spread by index.
+func _side_spawn(team: int, index: int) -> Vector3:
+    var own: Vector3 = base_positions[team]
+    var other: Vector3 = base_positions[2 if team == 1 else 1]
+    var side: Array[Vector3] = []
+    for p in spawns:
+        if p.distance_to(own) < p.distance_to(other):
+            side.append(p)
+    if side.is_empty():
+        side = spawns
+    return side[index % side.size()]
 
 
 func _bake_navmesh() -> void:

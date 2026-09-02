@@ -79,12 +79,16 @@ func _brain(delta: float) -> void:
             _seen_for = 0.0
 
     var engaged := target != null and target.alive and _last_seen < 2.5
+    var objective := _objective_point()
     if engaged:
         var dist := global_position.distance_to(target.global_position)
         if ticked:
             _choose_weapon(dist)
         _aim(delta, dist, sees)
-        _move_engaged(delta, dist, sees)
+        if carrying != null and objective != Vector3.INF:
+            _move_to(objective, delta)   # a carrier runs for the pad and shoots on the way
+        else:
+            _move_engaged(delta, dist, sees)
         var reaction := lerpf(0.55, 0.12, skill)
         arsenal.trigger = sees and _seen_for > reaction and _aim_on_target(dist) and _safe_to_fire(dist)
         arsenal.alt = arsenal.slot == 4 and dist > 10.0
@@ -93,7 +97,11 @@ func _brain(delta: float) -> void:
         arsenal.alt = false
         if ticked and arsenal.slot != 2:
             arsenal.select(2)
-        _wander(delta)
+        if objective != Vector3.INF:
+            _move_to(objective, delta)
+            _look_along_motion(delta)
+        else:
+            _wander(delta)
         var s := arsenal.current()
         if s.uses_ammo() and s.clip < s.data.clip_size and s.reserve > 0 and not s.is_reloading():
             arsenal.reload()
@@ -117,6 +125,25 @@ func _can_see(c: Character) -> bool:
     return get_world_3d().direct_space_state.intersect_ray(query).is_empty()
 
 
+## Capture the Battery: the pad when carrying, else the nearest loose cell within reach.
+func _objective_point() -> Vector3:
+    if Game.mode != "ctb":
+        return Vector3.INF
+    var m := get_tree().get_first_node_in_group("match") as MatchController
+    if m == null:
+        return Vector3.INF
+    if carrying != null:
+        return m.base_positions.get(team, Vector3.INF)
+    var best := Vector3.INF
+    var best_d := 28.0
+    for b in m.loose_batteries():
+        var d := global_position.distance_to(b.global_position)
+        if d < best_d:
+            best_d = d
+            best = b.global_position
+    return best
+
+
 func _pick_target() -> void:
     var best: Character = null
     var best_d := INF
@@ -125,6 +152,8 @@ func _pick_target() -> void:
         if not _is_enemy(c):
             continue
         var d := global_position.distance_to(c.global_position)
+        if c.carrying != null:
+            d -= 14.0   # enemy carriers are priority targets
         if not _can_see(c):
             d += 30.0
         if d < best_d:
