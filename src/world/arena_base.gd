@@ -163,7 +163,21 @@ func spawn_clear(at: Vector3, exclude: Node = null) -> bool:
     q.collision_mask = Character.LAYER_WORLD | Character.LAYER_CHARACTER
     if exclude is CollisionObject3D:
         q.exclude = [exclude.get_rid()]
-    return world.direct_space_state.intersect_shape(q, 1).is_empty()
+    var space := world.direct_space_state
+    if not space.intersect_shape(q, 1).is_empty():
+        return false
+    # kit furniture is a hollow trimesh: a capsule in the pocket under a couch arm touches no
+    # triangle, but the toy (and its camera) is inside the couch. Reject any spot whose chest
+    # point lies within a placed model's box, plus a little clearance around it.
+    var chest := at + Vector3(0, 0.9, 0)
+    for box: AABB in furniture_boxes:
+        if box.grow(FURNITURE_MARGIN).has_point(chest):
+            return false
+    return true
+
+
+const FURNITURE_MARGIN := 0.3
+var furniture_boxes: Array[AABB] = []     ## world boxes of every solid kit model (spawn checks)
 
 
 ## Bases at the two first spawns unless the map placed them; batteries at battery_spawns
@@ -322,7 +336,10 @@ func _place(path: String, pos: Vector3, yaw_deg := 0.0, scale := 1.0, collide :=
     add_child(inst)
     ToonMat.apply(inst, Color.WHITE, 0.0, 0.25, true)
     if collide:
+        var box := AABB()
         for mi in inst.find_children("*", "MeshInstance3D", true, false):
+            var world_box: AABB = mi.global_transform * mi.get_aabb()
+            box = world_box if box.size == Vector3.ZERO else box.merge(world_box)
             mi.create_trimesh_collision()
             for c in mi.get_children():
                 if c is StaticBody3D:
@@ -330,6 +347,8 @@ func _place(path: String, pos: Vector3, yaw_deg := 0.0, scale := 1.0, collide :=
                     c.collision_layer = Character.LAYER_WORLD
                     _tag_surface(c, surface if surface != "" else _model_surface(path))
             box_count += 1
+        if box.size.length() > 1.0:
+            furniture_boxes.append(box)
     return inst
 
 

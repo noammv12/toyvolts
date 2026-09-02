@@ -15,7 +15,10 @@ The toys move and break like plastic, and three bugs that bit the first party ni
   and the picker could drop a joining friend onto a bot idling on a spawn point. Every
   placement (first stand, bots, joins, respawns) now goes through a standing-capsule check
   against walls, furniture and other toys, with a ring search out to 3.6 m; a spawn with
-  anyone within 1.2 m is never picked. The three bad points moved to open floor.
+  anyone within 1.2 m is never picked. Kit furniture is a hollow shell, so a toy in the
+  pocket under a couch arm passes every overlap test: every placed model now records its box
+  and no spawn may sit inside one (plus 0.3 m). Five points moved to open floor, verified on
+  screen.
 
 ## Animations + effects (M7)
 

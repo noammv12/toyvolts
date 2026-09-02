@@ -1236,6 +1236,27 @@ func _test_toy_room() -> void:
         await _test_map(key, Game.MAPS[key].scene)
 
 
+## Drop the toy at p and try walking 20 physics frames in four directions; true if any
+## direction gets it a metre away (spawn-trap detector, the physics is the judge).
+func _can_walk_out(player: Character, p: Vector3) -> bool:
+    for k in 4:
+        player.velocity = Vector3.ZERO
+        player.global_position = p
+        for i in 8:
+            await get_tree().physics_frame
+        var settled: Vector3 = player.global_position
+        var a := TAU * k / 4.0 + 0.4
+        player.wish_dir = Vector3(cos(a), 0.0, sin(a))
+        for i in 20:
+            await get_tree().physics_frame
+        player.wish_dir = Vector3.ZERO
+        var walked: Vector3 = player.global_position - settled
+        walked.y = 0.0
+        if walked.length() >= 1.0:
+            return true
+    return false
+
+
 func _test_map(key: String, path: String) -> void:
     Game.mode = "ffa"
     Game.bot_count = 3
@@ -1294,8 +1315,8 @@ func _test_map(key: String, path: String) -> void:
         moved.y = maxf(0.0, moved.y)   # settling down onto a top is fine
         if moved.length() > 0.8:
             bad.append("%s->%s" % [p, player.global_position])
+            continue
     player.collision_mask = Character.LAYER_WORLD | Character.LAYER_CHARACTER
-    Game.match_active = true
     _check("%s: %d spots are clear (%s)" % [key, spots.size(), ", ".join(bad) if not bad.is_empty() else "ok"], bad.is_empty())
     # the standing silhouette at every spawn (and the first stand) touches no furniture
     player.global_position = Vector3(0, 40, 0)   # park the player out of the way of the query
@@ -1307,6 +1328,18 @@ func _test_map(key: String, path: String) -> void:
         if not room.spawn_clear(p, player):
             blocked.append(str(p))
     _check("%s: %d spawns + start have standing room (%s)" % [key, starts.size(), ", ".join(blocked) if not blocked.is_empty() else "ok"], blocked.is_empty())
+    # ...and you can walk away from every one of them: a toy boxed in under a couch skirt
+    # passes every overlap query (hollow trimesh) but cannot leave
+    var stuck := PackedStringArray()
+    for p in starts:
+        if not await _can_walk_out(player, p):
+            stuck.append(str(p))
+    _check("%s: you can walk away from every spawn (%s)" % [key, ", ".join(stuck) if not stuck.is_empty() else "ok"], stuck.is_empty())
+    if key == "toy_room":   # the spots that put Noam inside the couch, kept as probes
+        player.global_position = Vector3(0, 40, 0)
+        _check("toy_room: the old couch spawns are rejected and resolve out of the couch",
+            not room.spawn_clear(Vector3(-17.5, 0.3, 19.5), player) and not room.spawn_clear(Vector3(-19, 0.3, 19), player)
+            and room.spawn_clear(room.safe_spawn(Vector3(-17.5, 0.3, 19.5), player), player))
     # a toy standing on a spawn point makes it unusable, and a blocked spot resolves to open floor
     var mc: MatchController = room.get_node_or_null("Match")
     var squatters := get_tree().get_nodes_in_group("bots")
@@ -1326,6 +1359,7 @@ func _test_map(key: String, path: String) -> void:
             resolved.distance_to(spot) >= 0.9 and room.spawn_clear(resolved, player))
         squatter.global_position = room.spawns[1]
     player.global_position = room.spawns[0]
+    Game.match_active = true
     var bots := get_tree().get_nodes_in_group("bots")
     var grounded := 0
     for b in bots:

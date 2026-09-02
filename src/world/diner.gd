@@ -20,7 +20,7 @@ func _build() -> void:
         Vector3(-21, 0.3, 10), Vector3(21, 0.3, -10), Vector3(-21, 0.3, -10), Vector3(21, 0.3, 10),
         Vector3(-8, 0.3, 4.5), Vector3(3, 0.3, -8), Vector3(-8, 0.3, -9), Vector3(6.5, 0.3, -5),
     ]
-    player_start = Vector3(0, 0.3, 15)
+    player_start = Vector3(3.15, 0.3, 16.85)
     dummy_spots = [Vector3(4, 0.3, 8), Vector3(-6, 0.3, 9), Vector3(0, TOP + 0.3, 0)]
     base_positions = {1: Vector3(-21.0, 0.3, 0.0), 2: Vector3(21.0, 0.3, 0.0)}   # red west, blue east
     battery_spawns = [Vector3(0, TOP + 0.1, 0), Vector3(-12, TOP + 0.1, 11), Vector3(12, TOP + 0.1, 11)]
