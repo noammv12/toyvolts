@@ -3,9 +3,13 @@ render_mode cull_back, depth_draw_opaque;
 
 // Banded toon lighting + rim + hard specular. Outline is a separate inverted-hull pass (art milestone).
 uniform vec4 albedo : source_color = vec4(0.9, 0.55, 0.25, 1.0);
-uniform sampler2D albedo_tex : source_color, hint_default_white, filter_linear_mipmap;
+uniform sampler2D albedo_tex : source_color, hint_default_white, filter_linear_mipmap, repeat_enable;
+uniform sampler2D normal_tex : hint_normal, filter_linear_mipmap, repeat_enable;
+uniform bool use_normal_map = false;
+uniform float normal_depth : hint_range(0.0, 2.0) = 0.8;
+uniform vec2 uv_scale = vec2(1.0);
 uniform float bands : hint_range(1.0, 6.0) = 3.0;
-uniform float shade_floor : hint_range(0.0, 1.0) = 0.42;
+uniform float shade_floor : hint_range(0.0, 1.0) = 0.5;
 uniform float rim_width : hint_range(0.0, 1.0) = 0.3;
 uniform float rim_strength : hint_range(0.0, 1.0) = 0.2;
 uniform float spec_size : hint_range(0.0, 1.0) = 0.08;
@@ -23,7 +27,12 @@ void vertex() {
 }
 
 void fragment() {
-    vec3 col = albedo.rgb * texture(albedo_tex, UV).rgb;
+    vec2 uv = UV * uv_scale;
+    vec3 col = albedo.rgb * texture(albedo_tex, uv).rgb;
+    if (use_normal_map) {
+        NORMAL_MAP = texture(normal_tex, uv).rgb;
+        NORMAL_MAP_DEPTH = normal_depth;
+    }
     if (grid) {
         vec2 g = fract(world_pos.xz / grid_size);
         vec2 d = min(g, 1.0 - g);

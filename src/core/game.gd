@@ -1,7 +1,7 @@
 extends Node
 ## Global state: command-line args, mouse capture, settings, match setup.
 
-const ARENA_SCENE := "res://src/world/arena_greybox.tscn"
+const ARENA_SCENE := "res://src/world/toy_room.tscn"
 const MENU_SCENE := "res://src/ui/main_menu.tscn"
 
 var mouse_captured := false

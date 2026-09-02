@@ -14,6 +14,7 @@ func _ready() -> void:
     _test_weapon_state()
     await _test_practice_scene()
     await _test_match()
+    await _test_toy_room()
     print("\n%d checks, %d failed" % [_count, _fails])
     get_tree().quit(1 if _fails > 0 else 0)
 
@@ -256,6 +257,35 @@ func _test_match() -> void:
     _check("restart resets scores and revives", Game.match_active and player.kills == 0 and bot.alive)
 
     arena.queue_free()
+    await get_tree().process_frame
+
+
+# ---- toy room map: loads, collides, bakes ---------------------------------------
+
+func _test_toy_room() -> void:
+    Game.mode = "ffa"
+    Game.bot_count = 3
+    var scene := load("res://src/world/toy_room.tscn") as PackedScene
+    _check("toy room scene loads", scene != null)
+    if scene == null:
+        return
+    var room: Node3D = scene.instantiate()
+    add_child(room)
+    await get_tree().process_frame
+    _check("toy room placed > 40 colliders (%d)" % room.box_count, room.box_count > 40)
+    _check("toy room navmesh baked (%d polys)" % room.navmesh_polys, room.navmesh_polys > 80)
+    var player := room.get_node("Player") as Player
+    player.input_enabled = false
+    for i in 90:
+        await get_tree().physics_frame
+    _check("player stands on the toy room floor", player.is_on_floor() and player.global_position.y > -0.5)
+    var bots := get_tree().get_nodes_in_group("bots")
+    var grounded := 0
+    for b in bots:
+        if b.global_position.y > -0.5 and b.global_position.y < 8.0:
+            grounded += 1
+    _check("bots stay inside the room (%d/%d)" % [grounded, bots.size()], grounded == bots.size())
+    room.queue_free()
     await get_tree().process_frame
 
 

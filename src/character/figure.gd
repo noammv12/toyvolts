@@ -156,23 +156,7 @@ func _hide_accessories() -> void:
 
 
 func _apply_materials(tint: Color, tint_mix: float) -> void:
-    for mi in model.find_children("*", "MeshInstance3D", true, false):
-        var mesh: Mesh = mi.mesh
-        if mesh == null:
-            continue
-        for s in mesh.get_surface_count():
-            var base := mesh.surface_get_material(s) as BaseMaterial3D
-            var m := ShaderMaterial.new()
-            m.shader = TOON
-            if base != null:
-                if base.albedo_texture != null:
-                    m.set_shader_parameter("albedo_tex", base.albedo_texture)
-                m.set_shader_parameter("albedo", base.albedo_color)
-            m.set_shader_parameter("tint", tint)
-            m.set_shader_parameter("tint_mix", tint_mix)
-            m.set_shader_parameter("spec_strength", 0.25)
-            mi.set_surface_override_material(s, m)
-            mats.append(m)
+    mats = ToonMat.apply(model, tint, tint_mix, 0.25)
 
 
 func _set_loops() -> void:
