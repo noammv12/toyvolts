@@ -20,6 +20,7 @@ func _ready() -> void:
     _test_net_input()
     await _test_lag_comp()
     await _test_practice_scene()
+    await _test_animation()
     await _test_wave_step()
     await _test_match()
     await _test_elimination()
@@ -663,6 +664,107 @@ func _test_practice_scene() -> void:
         await get_tree().physics_frame
     _check("dummy respawns at home with full hp",
         dummy.alive and dummy.hp == 100.0 and dummy.global_position.distance_to(dummy.spawn_home) < 0.6)
+
+    arena.queue_free()
+    await get_tree().process_frame
+
+
+# ---- animation: clip inventory, speed blend, jump/land beats, stances --------------------
+
+func _test_animation() -> void:
+    Game.mode = "practice"
+    var arena: Node3D = (load(ARENA) as PackedScene).instantiate()
+    add_child(arena)
+    await get_tree().process_frame
+    var player: Character = arena.local_player()
+    player.controller.input_enabled = false
+    var f: Figure = player.figure
+    for i in 40:
+        await get_tree().physics_frame
+
+    # every clip the animator names must really exist: Figure._anim() silently substitutes
+    # "Idle" for a missing one, which would make a whole feature look implemented and do nothing.
+    var wanted: Array[String] = ["Death_A", "Death_B", Figure.AIM_POSE, Figure.MELEE_POSE]
+    for key in Figure.ACTIONS:
+        wanted.append(Figure.ACTIONS[key])
+    for key in Figure.BODY_ACTIONS:
+        wanted.append(Figure.BODY_ACTIONS[key])
+    for clip in Figure.LOOPING:
+        wanted.append(clip)
+    var missing := PackedStringArray()
+    for clip in wanted:
+        if not f.anim_player.has_animation(clip):
+            missing.append(clip)
+    _check("every rig clip the animator names exists (%d checked, missing: %s)" % [wanted.size(), str(missing)],
+        missing.is_empty())
+
+    # speed-based walk/run: the blend space carries a walk point between idle and run
+    var loco := f.tree.tree_root.get_node("loco") as AnimationNodeBlendSpace2D
+    var walk_i := -1
+    for i in loco.get_blend_point_count():
+        if is_equal_approx(loco.get_blend_point_position(i).y, Figure.WALK_AT):
+            walk_i = i
+    _check("loco blend space has a walk point at %.2f (%d points)" % [Figure.WALK_AT, loco.get_blend_point_count()],
+        walk_i >= 0 and loco.get_blend_point_count() == 6)
+    var walk_node := loco.get_blend_point_node(walk_i) as AnimationNodeAnimation
+    _check("the walk point plays Walking_A (%s)" % (walk_node.animation if walk_node else "?"),
+        walk_node != null and walk_node.animation == "Walking_A")
+    f.set_locomotion(Vector2(0, Character.CROUCH_SPEED), true, 1.0)
+    var blend: Vector2 = f.tree.get("parameters/loco/blend_position")
+    _check("crouch speed lands on the walk half of the blend (%.2f)" % blend.y,
+        blend.y > Figure.WALK_AT * 0.9 and blend.y < 0.75)
+
+    # strafe lean: the model banks into the sideways run
+    f.set_locomotion(Vector2(1, 0), true, 1.0)
+    _check("strafing right banks the toy (%.1f deg)" % rad_to_deg(f.rotation.z),
+        is_equal_approx(f.rotation.z, -deg_to_rad(Figure.LEAN_DEG)))
+    f.set_locomotion(Vector2.ZERO, true, 1.0)
+    _check("standing still is upright (%.2f deg)" % rad_to_deg(f.rotation.z), absf(f.rotation.z) < 0.001)
+
+    # jump: air blend rises, the full-body takeoff beat fires
+    var fx0: int = Vfx.pool_stats().reused + Vfx.pool_stats().created
+    var nodes0 := Vfx.get_child_count()
+    player.jump_pressed = true
+    for i in 6:
+        await get_tree().physics_frame
+        await get_tree().process_frame
+    _check("air blend rises after a jump (%.2f)" % f._air, f._air > 0.3)
+    _check("takeoff fires the full-body beat (%s)" % str(f.tree.get("parameters/body_shot/active")),
+        bool(f.tree.get("parameters/body_shot/active")))
+
+    # land: squash, dust, air blend back down, all from the pool
+    while not player.is_on_floor():
+        await get_tree().physics_frame
+    await get_tree().process_frame
+    await get_tree().process_frame
+    _check("landing squashes the toy (scale.y %.2f)" % f.scale.y, f.scale.y < 0.99)
+    var fx_used: int = Vfx.pool_stats().reused + Vfx.pool_stats().created - fx0
+    _check("a jump and landing use pooled effects (+%d uses, +%d nodes)" % [fx_used, Vfx.get_child_count() - nodes0],
+        fx_used >= 1 and Vfx.get_child_count() - nodes0 <= 2)
+    for i in 30:
+        await get_tree().process_frame
+    _check("the squash springs back (scale %.2f)" % f.scale.y, f.scale.is_equal_approx(Vector3.ONE))
+    _check("air blend falls back on the ground (%.2f)" % f._air, f._air < 0.2)
+
+    # stances: melee is a two-handed idle, the gatling is a heavier hold than the rifle
+    player.arsenal.select(2)
+    await _wait_swap(player)
+    for i in 30:
+        await get_tree().process_frame
+    var rifle_lift: float = f.aim_modifier.arm_lift_target
+    _check("rifle raises the arms (%.2f) and the melee pose is off (%.2f)" % [rifle_lift, f._melee_pose],
+        rifle_lift > 1.0 and f._melee_pose < 0.1)
+    player.arsenal.select(5)
+    await _wait_swap(player)
+    await get_tree().process_frame
+    _check("the gatling is a heavier hold (%.2f < %.2f)" % [f.aim_modifier.arm_lift_target, rifle_lift],
+        f.aim_modifier.arm_lift_target < rifle_lift - 0.1)
+    player.arsenal.select(1)
+    await _wait_swap(player)
+    for i in 40:
+        await get_tree().process_frame
+    _check("melee holds the two-handed idle (melee %.2f, aim %.2f)" % [f._melee_pose, f._aim],
+        f._melee_pose > 0.8 and f._aim < 0.2)
 
     arena.queue_free()
     await get_tree().process_frame

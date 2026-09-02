@@ -182,15 +182,16 @@ func puff(pos: Vector3, color: Color, size: float, rise: float, seconds: float) 
     _release_after(p, "sprite", seconds + 0.1)
 
 
-## Air-jump cue: a white ring puff under the feet.
-func jump_puff(pos: Vector3) -> void:
-    var puff := _sprite(_smoke, Color(1.0, 1.0, 1.0, 0.7), 0.6, false)
+## Air-jump / landing cue: a dust ring on the floor under the feet. `size` scales with the
+## impact. The quad is laid FLAT (rotated -90 about X, like the explosion shockwave) and spun
+## about its own normal: left upright it stands in the floor and reads as a hard-edged card.
+func jump_puff(pos: Vector3, size := 1.0) -> void:
+    var puff := _sprite(_smoke, Color(1.0, 1.0, 1.0, 0.55), 0.6 * size, false)
     puff.global_position = pos
-    puff.axis = Vector3.AXIS_Y
     puff.billboard = BaseMaterial3D.BILLBOARD_DISABLED
-    puff.rotation.z = randf() * TAU
+    puff.rotation = Vector3(-PI * 0.5, randf() * TAU, 0.0)
     var tw := _tween(puff).set_parallel(true)
-    tw.tween_property(puff, "scale", Vector3(2.4, 1.0, 2.4), 0.3).set_ease(Tween.EASE_OUT)
+    tw.tween_property(puff, "scale", Vector3(2.4, 2.4, 1.0), 0.3).set_ease(Tween.EASE_OUT)
     tw.tween_property(puff, "modulate:a", 0.0, 0.3)
     _release_after(puff, "sprite", 0.35)
 

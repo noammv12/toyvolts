@@ -1,7 +1,7 @@
 extends Node
 ## Visual verification loop: run the game with
 ##   tools/godot.sh --path . -- --screenshot=<abs path>.png [--frames=45|"40,60,80"]
-##       [--freeze_on=fire|explode|hit] [--freeze_delay=3]
+##       [--freeze_on=fire|explode|hit|land|death] [--freeze_delay=3]
 ## It waits N frames, saves the rendered frame(s) and quits. With --freeze_on the scene is
 ## paused a few frames after the event so short-lived effects can be captured deliberately.
 
@@ -116,6 +116,12 @@ func _arm_freeze(kind: String, delay_frames: int) -> void:
             Vfx.shake.connect(func(_p: Vector3, _s: float) -> void: _freeze_soon(kind, delay_frames))
         "hit":
             player.arsenal.hit_confirmed.connect(func(_k: bool, _h: bool) -> void: _freeze_soon(kind, delay_frames))
+        "land":
+            player.landed.connect(func(speed: float) -> void:
+                if speed > 3.0:
+                    _freeze_soon(kind, delay_frames))
+        "death":
+            player.died.connect(func(_v: Character, _k: Character) -> void: _freeze_soon(kind, delay_frames))
 
 
 func _freeze_soon(kind: String, delay_frames: int) -> void:

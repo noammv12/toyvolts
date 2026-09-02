@@ -11,6 +11,7 @@ signal died(victim: Character, killer: Character)
 signal health_changed(hp: float, max_hp: float)
 signal damaged(amount: float, source: Character, headshot: bool)
 signal respawned()
+signal landed(fall_speed: float)     ## cosmetic: hit the floor at this speed (m/s, positive)
 
 const HEAD_SHAPE_INDEX := 1
 const LAYER_WORLD := 1
@@ -79,6 +80,8 @@ var _aim_override := false
 var _aim_origin := Vector3.ZERO
 var _aim_dir := Vector3.FORWARD
 var _flash := 0.0
+var _anim_on_floor := true    ## ground contact as the ANIMATION sees it (puppets included)
+var _anim_fall_vy := 0.0      ## last airborne vertical speed: how hard the landing was
 var _death_serial := 0
 var _team_ring: MeshInstance3D
 var _step_t := 0.0
@@ -120,7 +123,39 @@ func _process(delta: float) -> void:
         var v := Vector2(local.x, -local.z) / maxf(run_speed, 0.1)
         figure.set_locomotion(v, grounded(), delta)
         figure.set_pitch(pitch)
-        figure.set_aiming(arsenal.data().kind != WeaponData.Kind.MELEE)
+        figure.set_stance(arsenal.data().kind != WeaponData.Kind.MELEE, arsenal.slot)
+        _anim_ground_step()
+
+
+## Takeoff and landing beats, driven from _process so REMOTE toys get them too: a puppet never
+## runs the movement code (see _physics_process), but its snapshot carries velocity and
+## on_floor, which is everything this needs.
+func _anim_ground_step() -> void:
+    var on_floor := grounded()
+    if on_floor != _anim_on_floor:
+        if on_floor:
+            _land(_anim_fall_vy)
+        elif puppet and velocity.y > 1.0:
+            figure.play_body_action("jump_start", 0.28)
+        _anim_on_floor = on_floor
+    if not on_floor:
+        _anim_fall_vy = velocity.y
+
+
+## Everything a landing does that is only cosmetic: clip, squash, dust, camera dip, thud.
+func _land(fall_vy: float) -> void:
+    var speed := absf(minf(fall_vy, 0.0))
+    Game.trace("land")
+    landed.emit(speed)
+    Sfx.play("land", global_position, -6.0 + clampf(speed * 0.4, 0.0, 5.0))
+    if speed < 3.0:
+        return
+    var hard := clampf((speed - 3.0) / 13.0, 0.0, 1.0)
+    figure.play_body_action("jump_land", lerpf(0.36, 0.22, hard))
+    figure.squash(0.35 + 0.75 * hard)
+    Vfx.jump_puff(global_position + Vector3(0, 0.08, 0), 0.8 + 0.7 * hard)
+    if controller != null and controller.has_method("apply_land_dip"):
+        controller.apply_land_dip(hard)
 
 
 func _physics_process(delta: float) -> void:
@@ -164,7 +199,6 @@ func _physics_process(delta: float) -> void:
         _jumps_used = 0
         _jump_buffer = 0.0
         if not _was_on_floor:
-            Sfx.play("land", global_position, -2.0)
             if zone_bounce and _fall_vy < -AUTO_BOUNCE:
                 velocity.y = -_fall_vy * 0.5   # the castle gives half the landing speed back
                 Sfx.play("boing", global_position, -6.0, 0.2)
@@ -194,8 +228,9 @@ func _physics_process(delta: float) -> void:
         _jumps_used += 1
         _jump_buffer = 0.0
         Sfx.play(Sfx.pick(["jump_a", "jump_b", "jump_c"]), global_position, 1.0 if second else 0.0)
+        figure.play_body_action("jump_double" if second else "jump_start", 0.34 if second else 0.28)
         if second:
-            Vfx.jump_puff(global_position + Vector3(0, 0.15, 0))
+            Vfx.jump_puff(global_position + Vector3(0, 0.15, 0), 1.3)
     jump_pressed = false
 
     _was_on_floor = is_on_floor()
@@ -447,6 +482,8 @@ func respawn(at: Vector3, look_yaw := 0.0) -> void:
     protection_left = SPAWN_PROTECTION
     collision_layer = LAYER_CHARACTER
     visible = true
+    _anim_on_floor = true
+    _anim_fall_vy = 0.0
     figure.revive()
     arsenal.refill_all()
     arsenal.select(2)

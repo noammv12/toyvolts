@@ -18,8 +18,11 @@ var _bob_t := 0.0
 var _bob := 0.0
 var _shake_offset := Vector3.ZERO
 var _dip := 0.0             ## weapon-swap camera dip (1 = just switched)
+var _land_dip := 0.0        ## landing camera dip (1 = hit the floor hard)
 var _noise := FastNoiseLite.new()
 var _autofire_frame := -1
+var _move_hold := Vector2.ZERO   ## --move=x,z: capture runs/walks without a keyboard
+var _jump_frame := -1            ## --jump=N: capture jumps and landings
 var _frame := 0
 var _smoke := false          ## --net_smoke: aim at the nearest enemy and hold fire (loopback test)
 var _smoke_ticks := 0
@@ -69,6 +72,14 @@ func _ready() -> void:
     if Game.has_arg("autofire"):   # debug: hold the trigger from frame N on
         input_enabled = false
         _autofire_frame = int(Game.arg("autofire", "40"))
+    if Game.has_arg("move"):       # debug: hold a move direction "x,z" (+z = forward)
+        input_enabled = false
+        var move := Game.arg("move").split(",")
+        if move.size() == 2:
+            _move_hold = Vector2(float(move[0]), float(move[1]))
+    if Game.has_arg("jump"):       # debug: jump on frame N, then every 90 frames
+        input_enabled = false
+        _jump_frame = int(Game.arg("jump", "40"))
     if Game.has_arg("net_smoke"):
         input_enabled = false
         _smoke = true
@@ -137,6 +148,10 @@ func feed(c: Character, _delta: float) -> void:
             c.crouch_held = false
             c.arsenal.trigger = false
             c.arsenal.alt = false
+    if _move_hold != Vector2.ZERO:   # capture: run without a keyboard
+        c.wish_dir = (Basis(Vector3.UP, c.yaw) * Vector3(_move_hold.x, 0.0, -_move_hold.y)).limit_length(1.0)
+    if _jump_frame >= 0 and _frame >= _jump_frame and (_frame - _jump_frame) % 90 == 0:
+        c.jump_pressed = true
     if Game.has_arg("crouch"):   # capture: hold the crouch
         c.crouch_held = true
     # shots go where the crosshair points: a ray from the camera through screen centre, posed
@@ -197,6 +212,7 @@ func _process(delta: float) -> void:
     _crouch_cam = lerpf(_crouch_cam, Character.CROUCH_CAMERA_DROP if character.crouching else 0.0, minf(1.0, delta * 12.0))
     $CameraRig.position.y = _rig_y - _crouch_cam
     _dip = maxf(0.0, _dip - delta * 7.0)
+    _land_dip = maxf(0.0, _land_dip - delta * 4.5)
     var shake := _trauma * _trauma
     var t := Time.get_ticks_msec() * 0.001
     var sx := _noise.get_noise_2d(t * 40.0, 0.0) * shake * 0.05
@@ -253,11 +269,19 @@ func cinematic_active() -> bool:
     return _cine_left > 0.0
 
 
-## Rig pose from the current look, recoil, shake, bob and swap dip.
+## Rig pose from the current look, recoil, shake, bob, swap dip and landing dip.
 func _pose_camera() -> void:
     var dip := _dip * _dip * 0.045
-    _pitch_node.rotation = Vector3(character.pitch + _recoil + _shake_offset.x - dip * 0.35, _shake_offset.y, _shake_offset.z)
-    _pitch_node.position = Vector3(0, _bob - dip, 0)
+    var land := _land_dip * _land_dip * 0.16
+    _pitch_node.rotation = Vector3(character.pitch + _recoil + _shake_offset.x - dip * 0.35 - land * 0.5,
+        _shake_offset.y, _shake_offset.z)
+    _pitch_node.position = Vector3(0, _bob - dip - land, 0)
+
+
+## Landing thump: a short camera drop proportional to how hard the toy hit the floor (0..1).
+func apply_land_dip(hard: float) -> void:
+    _land_dip = maxf(_land_dip, clampf(hard, 0.0, 1.0))
+    add_trauma(hard * 0.22)
 
 
 func apply_kick(deg: float) -> void:
