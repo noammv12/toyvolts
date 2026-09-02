@@ -8,6 +8,9 @@ extends Node
 signal weapon_changed(slot: int, data: WeaponData)
 signal fired(data: WeaponData)
 signal hit_confirmed(killed: bool, headshot: bool)
+## Damage YOU dealt, for the floating numbers. hit_confirmed carries neither the amount nor
+## the place, and widening it would touch six call sites; this is purely additive.
+signal damage_dealt(amount: float, pos: Vector3, headshot: bool, killed: bool)
 signal melee_swung(heavy: bool)
 signal reload_started()
 
@@ -409,6 +412,7 @@ func _fire_hitscan(d: WeaponData) -> void:
                 var result := target.take_damage(dmg, character, hit.position, dir * d.knockback / d.pellets, head)
                 if result.applied:
                     hit_confirmed.emit(result.killed, head)
+                    damage_dealt.emit(dmg, target.center(), head, result.killed)
             elif target == null and not cosmetic:
                 var prop := shootable_of(hit.collider)
                 if prop != null:
@@ -488,6 +492,7 @@ func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
         var result := other.take_damage(dmg, character, other.center(), impulse, false)
         if result.applied:
             hit_confirmed.emit(result.killed, false)
+            damage_dealt.emit(dmg, other.center(), false, result.killed)
             Vfx.impact(other.center() - forward * 0.3, -forward, true)
             Sfx.play("melee_hit", other.center())
             if finisher:   # the third swing lands with a star and a real camera kick

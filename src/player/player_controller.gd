@@ -23,6 +23,7 @@ var _noise := FastNoiseLite.new()
 var _autofire_frame := -1
 var _move_hold := Vector2.ZERO   ## --move=x,z: capture runs/walks without a keyboard
 var _jump_frame := -1            ## --jump=N: capture jumps and landings
+var _aim_point := Vector3.INF    ## --aim=x,y,z: point the crosshair at a spot in the world
 var _frame := 0
 var _smoke := false          ## --net_smoke: aim at the nearest enemy and hold fire (loopback test)
 var _smoke_ticks := 0
@@ -84,6 +85,11 @@ func _ready() -> void:
     if Game.has_arg("jump"):       # debug: jump on frame N, then every 90 frames
         input_enabled = false
         _jump_frame = int(Game.arg("jump", "40"))
+    if Game.has_arg("aim"):        # debug: hold the crosshair on a world point
+        input_enabled = false
+        var aim := Game.arg("aim").split(",")
+        if aim.size() == 3:
+            _aim_point = Vector3(float(aim[0]), float(aim[1]), float(aim[2]))
     if Game.has_arg("net_smoke"):
         input_enabled = false
         _smoke = true
@@ -152,6 +158,12 @@ func feed(c: Character, _delta: float) -> void:
             c.crouch_held = false
             c.arsenal.trigger = false
             c.arsenal.alt = false
+    if _aim_point != Vector3.INF:
+        # the camera sits 1.45 m to the right of the body, so aiming by eye never lines up;
+        # re-solving from THIS tick's camera converges in a frame or two
+        var to_target := (_aim_point - camera.global_position).normalized()
+        c.yaw = atan2(-to_target.x, -to_target.z)
+        c.pitch = asin(clampf(to_target.y, -1.0, 1.0))
     if _move_hold != Vector2.ZERO:   # capture: run without a keyboard
         c.wish_dir = (Basis(Vector3.UP, c.yaw) * Vector3(_move_hold.x, 0.0, -_move_hold.y)).limit_length(1.0)
     if _jump_frame >= 0 and _frame >= _jump_frame and (_frame - _jump_frame) % 90 == 0:

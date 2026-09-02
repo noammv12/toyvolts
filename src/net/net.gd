@@ -407,6 +407,7 @@ func register_character(c: Character) -> void:
         c.arsenal.melee_swung.connect(_on_char_melee.bind(c))
         c.arsenal.reload_started.connect(_on_char_reload.bind(c))
         c.arsenal.hit_confirmed.connect(_on_char_hit.bind(c))
+        c.arsenal.damage_dealt.connect(_on_char_damage_dealt.bind(c))
         c.damaged.connect(_on_char_damaged.bind(c))
         c.died.connect(_on_char_died)
         c.respawned.connect(_on_char_respawned.bind(c))
@@ -811,6 +812,11 @@ func _on_char_reload(c: Character) -> void:
         rpc_id(pid, "_ev_reload", c.net_id)
 
 
+func _on_char_damage_dealt(amount: float, pos: Vector3, headshot: bool, killed: bool, c: Character) -> void:
+    if c.peer_id > 1:
+        rpc_id(c.peer_id, "_ev_damage_dealt", amount, pos, headshot, killed)
+
+
 func _on_char_hit(killed: bool, headshot: bool, c: Character) -> void:
     if c.peer_id > 1 and multiplayer.get_peers().has(c.peer_id):
         rpc_id(c.peer_id, "_ev_hit", killed, headshot)
@@ -941,6 +947,13 @@ func _ev_reload(net_id: int) -> void:
     var c := _char(net_id)
     if c != null:
         c.arsenal.reload_remote()
+
+
+## Only the shooter is told, and only when it actually landed: the same shape as _ev_hit.
+@rpc("authority", "call_remote", "reliable")
+func _ev_damage_dealt(amount: float, pos: Vector3, headshot: bool, killed: bool) -> void:
+    if _local != null and is_instance_valid(_local):
+        _local.arsenal.damage_dealt.emit(amount, pos, headshot, killed)
 
 
 @rpc("authority", "call_remote", "reliable")

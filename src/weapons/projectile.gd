@@ -94,6 +94,7 @@ func _explode(pos: Vector3, normal: Vector3, direct_target: Character) -> void:
             data.damage, shooter, pos, velocity.normalized() * data.knockback, false)
         if result.applied and shooter.arsenal:
             shooter.arsenal.hit_confirmed.emit(result.killed, false)
+            shooter.arsenal.damage_dealt.emit(data.damage, direct_target.center(), false, result.killed)
     # the direct target also takes splash: a direct rocket is nearly lethal, a near miss is not
     if not cosmetic:
         Damage.splash(get_tree(), center, data.splash_radius, data.splash_damage,

@@ -34,6 +34,7 @@ static func splash(tree: SceneTree, center: Vector3, radius: float, damage: floa
             hits += 1
             if source != null and c != source and source.arsenal:
                 source.arsenal.hit_confirmed.emit(result.killed, false)
+                source.arsenal.damage_dealt.emit(dmg, c.center(), false, result.killed)
     # party props (candles, balloons, the pinata, gift ribbons) feel the blast too
     for node in tree.get_nodes_in_group("shootable"):
         var prop := node as Node3D

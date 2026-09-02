@@ -6,6 +6,7 @@ extends CanvasLayer
 
 const SLOT_W := 72.0
 const SLOT_H := 52.0
+const LOW_HP := 30.0        ## below this the screen edges pulse and the heart starts
 
 var _player: Character
 var _match: MatchController
@@ -17,7 +18,10 @@ var _card: PanelContainer
 var _card_tween: Tween
 var _damage_flash: ColorRect
 var _kill_flash: ColorRect
+var _vignette: TextureRect
+var _numbers: DamageNumbers
 var _flash_tween: Tween
+var _heart_t := 0.0
 var _hp_bar: HpBar
 var _ammo_label: Label
 var _weapon_label: Label
@@ -38,6 +42,61 @@ var _frame_ms := 16.0
 
 
 # ---- widgets -------------------------------------------------------------------
+
+## Floating damage numbers over whoever you just hit. Immediate mode over a fixed ring of
+## entries, so landing a hit never allocates a node.
+class DamageNumbers extends Control:
+    const LIFE := 0.85
+    const MAX := 16
+
+    var hud: CanvasLayer
+    var _entries: Array = []      # [amount, world_pos, born_msec, headshot, killed, drift]
+
+    func add(amount: float, pos: Vector3, headshot: bool, killed: bool) -> void:
+        if _entries.size() >= MAX:
+            _entries.pop_front()
+        # a spray of rifle hits lands on the same spot: fan the numbers out so they stay readable
+        _entries.append([amount, pos, Time.get_ticks_msec(), headshot, killed,
+            randf_range(-26.0, 26.0)])
+
+    func _process(_d: float) -> void:
+        if not _entries.is_empty():
+            queue_redraw()
+
+    func _draw() -> void:
+        var player: Character = hud._player if hud != null else null
+        if player == null or player.controller == null or not (player.controller is PlayerController):
+            _entries.clear()
+            return
+        var cam: Camera3D = player.controller.camera
+        if cam == null:
+            return
+        var font := ThemeDB.fallback_font
+        var now := Time.get_ticks_msec()
+        var i := 0
+        while i < _entries.size():
+            var e: Array = _entries[i]
+            var t := float(now - e[2]) / 1000.0 / LIFE
+            if t >= 1.0:
+                _entries.remove_at(i)
+                continue
+            i += 1
+            var world: Vector3 = e[1] + Vector3(0, 0.3 + t * 0.75, 0)
+            if cam.is_position_behind(world):
+                continue
+            var head: bool = e[3]
+            var size: int = 30 if head else 22
+            var col := Color(1.0, 0.82, 0.25) if head else Color(1, 1, 1)
+            if e[4]:
+                col = Color(1.0, 0.45, 0.3)
+            col.a = clampf((1.0 - t) * 2.0, 0.0, 1.0)
+            var text := "%d" % roundi(e[0])
+            var at := cam.unproject_position(world)
+            at.x += e[5] * t - font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x * 0.5
+            draw_string_outline(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, 5,
+                Color(0, 0, 0, col.a * 0.85))
+            draw_string(font, at, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size, col)
+
 
 class Overlay extends Control:
     var player: Character
@@ -370,7 +429,42 @@ func _ready() -> void:
         _match.announce.connect(_on_announce)
     Game.notice.connect(_on_notice)
     Vfx.screen_flash.connect(flash)
+    _numbers.hud = self
     _bind_player(Game.local_player())
+
+
+## Below LOW_HP the screen edges pulse red and a heartbeat comes up underneath, both faster
+## the worse it gets. Healing, dying or respawning stops them.
+func _low_health(delta: float) -> void:
+    var hurt := 0.0
+    if _player != null and _player.alive and _player.hp > 0.0:
+        hurt = clampf((LOW_HP - _player.hp) / LOW_HP, 0.0, 1.0)
+    if hurt <= 0.01:
+        _vignette.modulate.a = 0.0
+        _heart_t = 0.0
+        return
+    var beat := Time.get_ticks_msec() * 0.001 * (3.4 + 2.6 * hurt)
+    _vignette.modulate.a = hurt * (0.4 + 0.16 * sin(beat))
+    _heart_t -= delta
+    if _heart_t <= 0.0:
+        _heart_t = lerpf(1.15, 0.5, hurt)
+        Sfx.play_ui("heartbeat", -8.0 + hurt * 6.0, 0.02)
+
+
+## Transparent in the middle, red at the edges: a radial ramp, no shader needed.
+func _vignette_tex() -> GradientTexture2D:
+    var g := Gradient.new()
+    g.colors = PackedColorArray([Color(1, 0.1, 0.06, 0.0), Color(1, 0.1, 0.06, 0.0),
+        Color(0.95, 0.08, 0.05, 0.85), Color(0.85, 0.05, 0.03, 1.0)])
+    g.offsets = PackedFloat32Array([0.0, 0.45, 0.88, 1.0])
+    var t := GradientTexture2D.new()
+    t.gradient = g
+    t.width = 128
+    t.height = 128
+    t.fill = GradientTexture2D.FILL_RADIAL
+    t.fill_from = Vector2(0.5, 0.5)
+    t.fill_to = Vector2(1.0, 0.5)
+    return t
 
 
 ## One full-screen wash (a sniper kill, a rocket going off in your face). The previous one is
@@ -388,6 +482,8 @@ func _bind_player(c: Character) -> void:
     if c == null or c == _player:
         return
     _player = c
+    if c != null and not c.arsenal.damage_dealt.is_connected(_on_damage_dealt):
+        c.arsenal.damage_dealt.connect(_on_damage_dealt)
     _overlay.player = c
     _hp_bar.player = c
     _radar.player = c
@@ -409,12 +505,19 @@ func _on_announce(text: String, who: Character) -> void:
     _popup_until = Time.get_ticks_msec() / 1000.0 + 2.5
 
 
+## Microvolts shows what you took off someone. Only your OWN damage, at the victim.
+func _on_damage_dealt(amount: float, pos: Vector3, headshot: bool, killed: bool) -> void:
+    if amount > 0.0:
+        _numbers.add(amount, pos, headshot, killed)
+
+
 func _on_notice(text: String) -> void:
     _popup(text, Color(0.75, 0.9, 1.0))
     _popup_until = Time.get_ticks_msec() / 1000.0 + 5.0
 
 
 func _process(delta: float) -> void:
+    _low_health(delta)
     _frame_ms = lerpf(_frame_ms, delta * 1000.0, 0.08)
     _fps_label.text = "%d fps  %.1f ms" % [Engine.get_frames_per_second(), _frame_ms]
     if Net.is_client():
@@ -483,6 +586,14 @@ func _process(delta: float) -> void:
 
 
 func _build() -> void:
+    _vignette = TextureRect.new()
+    _vignette.texture = _vignette_tex()
+    _vignette.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    _vignette.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+    _vignette.stretch_mode = TextureRect.STRETCH_SCALE
+    _vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    _vignette.modulate = Color(1, 1, 1, 0)
+    add_child(_vignette)
     _damage_flash = ColorRect.new()
     _damage_flash.color = Color(1, 0.1, 0.05, 0.0)
     _damage_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -494,6 +605,10 @@ func _build() -> void:
     _kill_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
     add_child(_kill_flash)
 
+    _numbers = DamageNumbers.new()
+    _numbers.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    _numbers.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    add_child(_numbers)
     _overlay = Overlay.new()
     _overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     _overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE

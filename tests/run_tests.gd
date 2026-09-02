@@ -4,6 +4,7 @@ extends Node
 
 const ARENA := "res://src/world/arena_greybox.tscn"
 const HudRadarProbe := preload("res://src/ui/hud.gd").Radar
+const HudNumbers := preload("res://src/ui/hud.gd").DamageNumbers
 const TARGET_DUMMY: PackedScene = preload("res://src/world/target_dummy.tscn")
 
 var _fails := 0
@@ -933,6 +934,49 @@ func _test_animation() -> void:
     _check("a melee swing draws a pooled arc (free %d -> %d, +%d nodes)" % [
         arcs0, Vfx._free["arc"].size(), Vfx.get_child_count() - nodes4],
         Vfx._free["arc"].size() == arcs0 - 1 and Vfx.get_child_count() - nodes4 == 0)
+
+    # --- floating damage numbers and low-health feedback ----------------------------
+    var hud: CanvasLayer = null
+    for node in arena.get_children():
+        if node is CanvasLayer and node.has_method("flash"):
+            hud = node
+    _check("the arena carries a HUD", hud != null)
+    var dealt: Array = []
+    player.arsenal.damage_dealt.connect(func(a: float, _p: Vector3, h: bool, _k: bool) -> void:
+        dealt.append([a, h]))
+    player.arsenal.select(2)
+    await _wait_swap(player)
+    Game.match_active = true
+    dummy.hp = 100.0
+    dummy.protection_left = 0.0
+    await _aim_at(player, dummy.center())
+    await _pull_trigger(player)
+    _check("a landed shot reports what it took off (%s)" % str(dealt),
+        dealt.size() == 1 and is_equal_approx(dealt[0][0], 9.0) and not dealt[0][1])
+    _check("...and the number reaches the HUD (%d)" % hud._numbers._entries.size(),
+        hud._numbers._entries.size() >= 1)
+    dummy.hp = 100.0
+    dummy.protection_left = 0.0
+    await _aim_at(player, dummy.global_position + Vector3(0, 1.66, 0))
+    dealt.clear()
+    await _pull_trigger(player)
+    _check("a headshot number is flagged as one (%s)" % str(dealt),
+        dealt.size() == 1 and dealt[0][1] and dealt[0][0] > 12.0)
+    for i in 30:
+        hud._numbers.add(5.0, dummy.center(), false, false)
+    _check("the number ring is capped at %d (%d)" % [HudNumbers.MAX, hud._numbers._entries.size()],
+        hud._numbers._entries.size() <= HudNumbers.MAX)
+
+    player.hp = player.max_hp
+    hud._low_health(0.016)
+    _check("a healthy toy shows no vignette", hud._vignette.modulate.a == 0.0)
+    player.hp = 12.0
+    hud._low_health(0.016)
+    _check("under %d hp the screen edges pulse (%.2f)" % [int(hud.LOW_HP), hud._vignette.modulate.a],
+        hud._vignette.modulate.a > 0.1)
+    player.hp = player.max_hp
+    hud._low_health(0.016)
+    _check("healing clears the vignette", hud._vignette.modulate.a == 0.0)
 
     # --- the death camera plumbing (the real trigger is skipped headless) -----------
     # (headless has no wall clock to wait on, so drive the two ends directly)
