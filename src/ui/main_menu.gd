@@ -20,11 +20,17 @@ var _preview_figure: Figure
 var _preview_root: Node3D
 var _skin_name: Label
 var _skin_blurb: Label
+var _settings: SettingsPanel
+var _settings_dim: ColorRect
+
+
+func open_settings() -> void:
+    _settings_dim.visible = true
+    _settings.visible = true
 
 
 func _ready() -> void:
     Game.set_mouse_captured(false)
-    Game.load_settings()
     if Game.has_arg("mode"):
         Game.start_match(Game.mode, Game.bot_count)
         return
@@ -126,11 +132,33 @@ func _build() -> void:
         Game.save_settings()
         Game.start_match(_mode, _bots if _mode != "practice" else 0))
     left.add_child(start)
+    var settings_btn := Button.new()
+    settings_btn.text = "Settings"
+    settings_btn.custom_minimum_size = Vector2(330, 40)
+    settings_btn.pressed.connect(func() -> void:
+        Sfx.play_ui("ui_click")
+        open_settings())
+    left.add_child(settings_btn)
     var quit := Button.new()
     quit.text = "Quit"
     quit.custom_minimum_size = Vector2(330, 40)
     quit.pressed.connect(func() -> void: get_tree().quit())
     left.add_child(quit)
+
+    _settings_dim = ColorRect.new()
+    _settings_dim.color = Color(0.03, 0.04, 0.06, 0.6)
+    _settings_dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    _settings_dim.visible = false
+    add_child(_settings_dim)
+    _settings = SettingsPanel.new()
+    _settings.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+    _settings.grow_horizontal = Control.GROW_DIRECTION_BOTH
+    _settings.grow_vertical = Control.GROW_DIRECTION_BOTH
+    _settings.visible = false
+    _settings.closed.connect(func() -> void:
+        _settings.visible = false
+        _settings_dim.visible = false)
+    add_child(_settings)
 
     # ---- right column: figure select + preview
     var right := VBoxContainer.new()
@@ -169,7 +197,7 @@ func _build() -> void:
         _skin_buttons[s.id] = b
 
     var hint := Label.new()
-    hint.text = "WASD move   Space jump (melee: double jump)   LMB fire   RMB aim / heavy swing   R reload\n1-7 / wheel / Q weapons   Tab scoreboard   Esc free mouse, then M for menu"
+    hint.text = "WASD move   Space jump (melee: double jump)   LMB fire   RMB aim / heavy swing   R reload\n1-7 / wheel / Q weapons   Tab scoreboard   Esc pause / settings"
     hint.add_theme_font_size_override("font_size", 14)
     hint.modulate = Color(1, 1, 1, 0.5)
     hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -191,7 +219,7 @@ func _build_preview() -> Control:
     var vp := SubViewport.new()
     vp.size = Vector2i(420, 420)
     vp.transparent_bg = true
-    vp.msaa_3d = Viewport.MSAA_4X
+    vp.msaa_3d = Quality.preset(Game.quality).msaa if Quality.is_level(Game.quality) else Viewport.MSAA_4X
     container.add_child(vp)
     _preview_root = Node3D.new()
     vp.add_child(_preview_root)

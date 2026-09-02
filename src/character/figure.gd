@@ -47,6 +47,7 @@ var _loco := Vector2.ZERO
 var _air := 0.0
 var _aim := 0.0
 var _aim_target := 0.0
+var _flash_applied := -1.0
 
 
 func setup(model_path: String, tint: Color = Color.WHITE, tint_mix := 0.0) -> void:
@@ -106,6 +107,9 @@ func set_pitch(pitch: float) -> void:
 
 
 func set_flash(amount: float) -> void:
+    if absf(amount - _flash_applied) < 0.002:
+        return   # most frames: nothing to upload
+    _flash_applied = amount
     for m in mats:
         m.set_shader_parameter("flash", amount)
 
@@ -119,6 +123,7 @@ func set_tint(tint: Color, tint_mix: float) -> void:
 func play_action(key: String, duration: float) -> void:
     if not ready_ok or not ACTIONS.has(key):
         return
+    Game.trace("act:" + key)
     var anim_name: String = ACTIONS[key]
     if not anim_player.has_animation(anim_name):
         return
@@ -131,6 +136,7 @@ func play_action(key: String, duration: float) -> void:
 func play_death() -> void:
     if not ready_ok:
         return
+    Game.trace("anim_death")
     tree.active = false
     anim_player.play("Death_A" if randf() < 0.5 else "Death_B")
 

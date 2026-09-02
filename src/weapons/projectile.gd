@@ -12,6 +12,7 @@ var shooter: Character
 var velocity := Vector3.ZERO
 var age := 0.0
 var _exploded := false
+var _trail: Node3D
 
 
 func setup(weapon: WeaponData, owner_character: Character, initial_velocity: Vector3) -> void:
@@ -21,10 +22,11 @@ func setup(weapon: WeaponData, owner_character: Character, initial_velocity: Vec
 
 
 func _ready() -> void:
+    Game.trace("projectile")
     _build_mesh()
     _orient()
     var rocket := data.projectile_gravity <= 0.0
-    Vfx.trail(self, rocket)
+    _trail = Vfx.trail(self, rocket)
     if rocket:
         Sfx.attach_loop("rocket_loop", self)
 
@@ -37,6 +39,7 @@ func _physics_process(delta: float) -> void:
         _explode(global_position, Vector3.UP, null)
         return
     if age > MAX_LIFE:
+        Vfx.release_trail(_trail)
         queue_free()
         return
 
@@ -81,6 +84,7 @@ func _explode(pos: Vector3, normal: Vector3, direct_target: Character) -> void:
         shooter if is_instance_valid(shooter) else null, data.knockback, null)
     Vfx.explosion(center, data.splash_radius)
     Sfx.play("explosion", center, 0.0, 0.1)
+    Vfx.release_trail(_trail)
     queue_free()
 
 

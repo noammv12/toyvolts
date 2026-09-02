@@ -23,9 +23,14 @@ var _scene_cache := {}
 
 
 func _ready() -> void:
+    add_to_group("arena")
+    Game.apply_quality()
+    if not Game.headless:
+        add_child(PauseMenu.new())
     _build()
     _bake_navmesh()
     Vfx.warm_up()
+    Game.probe_quality()
     var match_node := get_node_or_null("Match") as MatchController
     if match_node:
         match_node.spawn_points = spawns
@@ -56,6 +61,15 @@ func _ready() -> void:
 ## Map layout goes here.
 func _build() -> void:
     pass
+
+
+func environment() -> Environment:
+    var env := get_node_or_null("Env") as WorldEnvironment
+    return env.environment if env else null
+
+
+func sun() -> DirectionalLight3D:
+    return get_node_or_null("Sun") as DirectionalLight3D
 
 
 func _spawn_bots(count: int, teams: bool) -> void:
@@ -137,7 +151,7 @@ func _place(path: String, pos: Vector3, yaw_deg := 0.0, scale := 1.0, collide :=
     inst.rotation.y = deg_to_rad(yaw_deg)
     inst.scale = Vector3.ONE * scale
     add_child(inst)
-    ToonMat.apply(inst)
+    ToonMat.apply(inst, Color.WHITE, 0.0, 0.25, true)
     if collide:
         for mi in inst.find_children("*", "MeshInstance3D", true, false):
             mi.create_trimesh_collision()

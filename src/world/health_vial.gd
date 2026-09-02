@@ -11,6 +11,7 @@ var _base_y := 0.0
 
 
 func _ready() -> void:
+    Game.trace("vial")
     add_to_group("pickups")
     collision_layer = 0
     collision_mask = Character.LAYER_CHARACTER

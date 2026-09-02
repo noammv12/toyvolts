@@ -126,10 +126,13 @@ func _test_practice_scene() -> void:
     await _wait_swap(player)
     await _aim_at(player, dummy.center())
     var hp0 := dummy.hp
-    var fx0 := Vfx.get_child_count()
+    var fx0: int = Vfx.pool_stats().reused + Vfx.pool_stats().created
+    var nodes0 := Vfx.get_child_count()
     await _pull_trigger(player)
     _check("rifle body shot does 9 (%.1f)" % (hp0 - dummy.hp), is_equal_approx(hp0 - dummy.hp, 9.0))
-    _check("a shot spawns effects (+%d nodes)" % (Vfx.get_child_count() - fx0), Vfx.get_child_count() >= fx0 + 4)
+    var fx_used: int = Vfx.pool_stats().reused + Vfx.pool_stats().created - fx0
+    _check("a shot uses pooled effects (+%d uses, +%d nodes)" % [fx_used, Vfx.get_child_count() - nodes0],
+        fx_used >= 4 and Vfx.get_child_count() - nodes0 <= 2)
     await _aim_at(player, dummy.global_position + Vector3(0, 1.66, 0))
     hp0 = dummy.hp
     await _pull_trigger(player)

@@ -28,6 +28,7 @@ var _banner_until := 0.0
 var _popup_until := 0.0
 var _hurt_dir := Vector2.ZERO
 var _hurt_until := 0.0
+var _frame_ms := 16.0
 
 
 # ---- widgets -------------------------------------------------------------------
@@ -279,10 +280,17 @@ func _ready() -> void:
         _match.kill_feed.connect(_on_kill_feed)
         _match.match_ended.connect(_on_match_ended)
         _match.round_ended.connect(_on_round_ended)
+    Game.notice.connect(_on_notice)
 
 
-func _process(_delta: float) -> void:
-    _fps_label.text = "%d fps" % Engine.get_frames_per_second()
+func _on_notice(text: String) -> void:
+    _popup(text, Color(0.75, 0.9, 1.0))
+    _popup_until = Time.get_ticks_msec() / 1000.0 + 5.0
+
+
+func _process(delta: float) -> void:
+    _frame_ms = lerpf(_frame_ms, delta * 1000.0, 0.08)
+    _fps_label.text = "%d fps  %.1f ms" % [Engine.get_frames_per_second(), _frame_ms]
     if _player == null:
         return
     var now := Time.get_ticks_msec() / 1000.0
@@ -321,8 +329,8 @@ func _process(_delta: float) -> void:
             var left := maxf(0.0, (_player.respawn_at_msec - Time.get_ticks_msec()) / 1000.0)
             _center_label.text = "Respawn in %d" % int(ceil(left))
         _center_label.modulate = Color.WHITE
-    elif not Game.mouse_captured and not Game.headless and not Game.has_arg("screenshot"):
-        _center_label.text = "Click to play   |   M = menu"
+    elif not Game.mouse_captured and not Game.headless and not Game.is_capture() and not get_tree().paused:
+        _center_label.text = "Click to play   |   Esc = pause"
         _center_label.modulate = Color(1, 1, 1, 0.8)
     else:
         _center_label.text = ""

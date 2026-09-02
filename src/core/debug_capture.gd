@@ -14,8 +14,28 @@ func _ready() -> void:
         _arm_freeze(Game.arg("freeze_on"), int(Game.arg("freeze_delay", "3")))
     if Game.has_arg("fxtest"):
         _fx_test(int(Game.arg("fxtest", "30")))
+    if Game.has_arg("ui"):
+        _show_ui(Game.arg("ui"), int(Game.arg("ui_frame", "30")))
     if Game.has_arg("screenshot"):
         _capture(Game.arg("screenshot"), Game.arg("frames", "45"))
+    if Game.has_arg("bench"):
+        _bench()
+
+
+## `--ui=pause|settings [--ui_frame=30]`: open the pause overlay (or its settings sheet) for a
+## capture. Works in the arena (pause menu) and in the main menu (settings).
+func _show_ui(which: String, at_frame: int) -> void:
+    for i in at_frame:
+        await get_tree().process_frame
+    var pause := get_tree().get_first_node_in_group("pause_menu") as PauseMenu
+    if pause != null:
+        pause.open()
+        if which == "settings":
+            pause._open_settings()
+        return
+    var menu := get_tree().current_scene
+    if menu != null and menu.has_method("open_settings"):
+        menu.open_settings()
 
 
 ## Stages every effect a few metres in front of the player and freezes the scene.
@@ -114,3 +134,147 @@ func _capture(path: String, frames_spec: String) -> void:
         else:
             print("[capture] FAILED err=", err, " path=", abs_path)
     get_tree().quit()
+
+
+# ---- benchmark -------------------------------------------------------------------
+## `--bench [--quality=low|medium|high] [--scale=0.66]`: drives the player through three fixed
+## phases (idle look, 360 sweep, combat with every effect) and prints per-phase frame times.
+## tools/bench.sh runs it once per preset and tabulates the "[bench] total" lines.
+
+const BENCH_SKIP_FRAMES := 120   ## warm-up: shader compiles, navmesh, first SDFGI cascades
+
+var _bench_frames: PackedFloat64Array = []
+var _bench_gpu: PackedFloat64Array = []
+var _bench_cpu: PackedFloat64Array = []
+var _bench_recording := false
+var _bench_last_usec := 0
+
+
+func _process(_delta: float) -> void:
+    if _bench_recording:
+        # wall-clock gap between frames: the engine clamps `delta` at 8 physics steps (133 ms)
+        var now := Time.get_ticks_usec()
+        var delta := (now - _bench_last_usec) / 1e6 if _bench_last_usec > 0 else _delta
+        _bench_last_usec = now
+        _bench_frames.append(delta * 1000.0)
+        var rid := get_viewport().get_viewport_rid()
+        var gpu := RenderingServer.viewport_get_measured_render_time_gpu(rid)
+        var cpu := RenderingServer.viewport_get_measured_render_time_cpu(rid)
+        _bench_gpu.append(gpu)
+        _bench_cpu.append(cpu)
+        if delta > 0.033:
+            print("[bench] hitch %6.1fms  gpu=%5.1f render_cpu=%5.1f process=%5.1f physics=%5.1f objects=%d nodes=%d  events: %s" % [
+                delta * 1000.0, gpu, cpu,
+                Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0,
+                Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0,
+                Performance.get_monitor(Performance.OBJECT_COUNT),
+                Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
+                Game.trace_since(Time.get_ticks_msec() - int(delta * 1000.0) - 40)])
+
+
+func _bench() -> void:
+    var player: Player = null
+    while player == null:
+        await get_tree().process_frame
+        player = get_tree().get_first_node_in_group("player") as Player
+    player.input_enabled = false
+    Game.match_active = true
+    Game.trace_enabled = true
+    if not Game.has_arg("nomeasure"):
+        RenderingServer.viewport_set_measure_render_time(get_viewport().get_viewport_rid(), true)
+    for i in BENCH_SKIP_FRAMES:
+        await get_tree().process_frame
+    var results := []
+    # phase 1: idle at the spawn, looking across the room
+    player.global_position = Vector3(0, 0.3, 19)
+    player.yaw = 0.0
+    player.pitch = deg_to_rad(-6.0)
+    results.append(await _bench_phase("idle", 3.0, func(_t: float) -> void: pass, player))
+    # phase 2: full turn from the middle of the rug
+    player.global_position = Vector3(0, 0.3, 8)
+    player.pitch = deg_to_rad(-8.0)
+    results.append(await _bench_phase("sweep", 4.0, func(t: float) -> void:
+        player.yaw = t / 4.0 * TAU, player))
+    # phase 3: combat: rifle burst, three rockets, gatling, while turning slowly
+    player.global_position = Vector3(0, 0.3, 12)
+    player.yaw = 0.0
+    player.pitch = deg_to_rad(-14.0)
+    var script := [[2, 0.0, 1.2, true], [6, 1.3, 2.6, false], [5, 2.7, 4.5, true]]
+    results.append(await _bench_phase("combat", 4.5, func(t: float) -> void:
+        player.yaw = sin(t * 1.4) * 0.6
+        var want := false
+        for step in script:
+            if t >= step[1] and t < step[2]:
+                if player.arsenal.slot != step[0]:
+                    player.arsenal.select(step[0])
+                want = step[3] or (int(t * 12.0) % 4 == 0)   # semi-auto: pulse the trigger
+        player.arsenal.trigger = want, player))
+    player.arsenal.trigger = false
+    # summary
+    var all_frames: PackedFloat64Array = []
+    var all_gpu: PackedFloat64Array = []
+    var all_cpu: PackedFloat64Array = []
+    for r in results:
+        all_frames.append_array(r.frames)
+        all_gpu.append_array(r.gpu)
+        all_cpu.append_array(r.cpu)
+    var total := _bench_stats("total", all_frames, all_gpu, all_cpu)
+    var vp := get_viewport()
+    var msaa := {Viewport.MSAA_DISABLED: "off", Viewport.MSAA_2X: "2x", Viewport.MSAA_4X: "4x", Viewport.MSAA_8X: "8x"}
+    print("[bench] setup preset=%s scale=%.2f mode=%s msaa=%s res=%s gpu=\"%s\" nodes=%d" % [
+        Game.quality, vp.scaling_3d_scale, Quality.scale_mode_name(vp.scaling_3d_mode), msaa.get(vp.msaa_3d, "?"),
+        "%dx%d" % [vp.size.x, vp.size.y], RenderingServer.get_video_adapter_name(),
+        Performance.get_monitor(Performance.OBJECT_NODE_COUNT)])
+    print("[bench] draw_calls=%d primitives=%d objects=%d" % [
+        Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME),
+        Performance.get_monitor(Performance.RENDER_TOTAL_PRIMITIVES_IN_FRAME),
+        Performance.get_monitor(Performance.RENDER_TOTAL_OBJECTS_IN_FRAME)])
+    print(total)
+    await get_tree().process_frame
+    get_tree().quit()
+
+
+func _bench_phase(name: String, seconds: float, step: Callable, player: Player) -> Dictionary:
+    _bench_frames = []
+    _bench_gpu = []
+    _bench_cpu = []
+    _bench_last_usec = 0
+    var t := 0.0
+    _bench_recording = true
+    while t < seconds:
+        step.call(t)
+        var before := Time.get_ticks_usec()
+        await get_tree().process_frame
+        t += (Time.get_ticks_usec() - before) / 1e6
+    _bench_recording = false
+    player.arsenal.trigger = false
+    var frames := _bench_frames.duplicate()
+    var gpu := _bench_gpu.duplicate()
+    var cpu := _bench_cpu.duplicate()
+    print(_bench_stats(name, frames, gpu, cpu))
+    return {"frames": frames, "gpu": gpu, "cpu": cpu}
+
+
+func _bench_stats(name: String, frames: PackedFloat64Array, gpu: PackedFloat64Array, cpu: PackedFloat64Array) -> String:
+    if frames.is_empty():
+        return "[bench] %s: no frames" % name
+    var sorted := frames.duplicate()
+    sorted.sort()
+    var sum := 0.0
+    for f in frames:
+        sum += f
+    var avg := sum / frames.size()
+    var p99 := sorted[mini(sorted.size() - 1, int(sorted.size() * 0.99))]
+    var worst := sorted[sorted.size() - 1]
+    var gsum := 0.0
+    for g in gpu:
+        gsum += g
+    var csum := 0.0
+    for c in cpu:
+        csum += c
+    var hitches := 0
+    for f in frames:
+        if f > 33.0:
+            hitches += 1
+    return "[bench] %-7s avg=%6.2fms  p99=%6.2fms  max=%6.2fms  fps=%4.0f  gpu=%5.2fms  cpu=%5.2fms  hitches=%d  frames=%d" % [
+        name, avg, p99, worst, 1000.0 / avg, gsum / gpu.size(), csum / cpu.size(), hitches, frames.size()]

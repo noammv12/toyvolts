@@ -56,6 +56,7 @@ func select(new_slot: int) -> void:
     if new_slot < 1 or new_slot > 7 or new_slot == slot:
         return
     current().cancel_reload()   # swap-cancel
+    Game.trace("select:%d" % new_slot)
     previous_slot = slot
     slot = new_slot
     swap_left = data().swap_time
@@ -76,6 +77,7 @@ func select_offset(offset: int) -> void:
 
 func reload() -> void:
     if current().start_reload():
+        Game.trace("reload:%d" % slot)
         Sfx.play("reload", character.center())
         var f := _figure()
         if f:
@@ -154,6 +156,7 @@ func _physics_process(delta: float) -> void:
 
 func _fire(s: WeaponState) -> void:
     var d := s.data
+    Game.trace("fire:%d" % slot)
     match d.kind:
         WeaponData.Kind.MELEE:
             _melee(s, d.damage, d.fire_interval, false)

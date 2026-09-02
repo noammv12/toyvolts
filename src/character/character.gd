@@ -187,6 +187,7 @@ func heal(amount: float) -> void:
 
 
 func _die(killer: Character) -> void:
+    Game.trace("die:" + display_name)
     alive = false
     deaths += 1
     if killer != null and killer != self:
@@ -200,11 +201,13 @@ func _die(killer: Character) -> void:
     var serial := _death_serial
     get_tree().create_timer(DEATH_HIDE_DELAY).timeout.connect(func() -> void:
         if not alive and serial == _death_serial:
+            Game.trace("hide:" + display_name)
             visible = false)
     died.emit(self, killer)
 
 
 func respawn(at: Vector3, look_yaw := 0.0) -> void:
+    Game.trace("respawn:" + display_name)
     _death_serial += 1
     global_position = at
     yaw = look_yaw

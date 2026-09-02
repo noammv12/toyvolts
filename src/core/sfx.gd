@@ -60,6 +60,7 @@ func play(name: String, pos: Vector3, volume_db := 0.0, pitch_jitter := 0.06) ->
         return null
     var p := _pool[_pool_i]
     _pool_i = (_pool_i + 1) % _pool.size()
+    Game.trace("sfx:" + name)
     p.stop()
     p.stream = _streams[name]
     p.global_position = pos

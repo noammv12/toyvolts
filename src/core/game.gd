@@ -1,17 +1,40 @@
 extends Node
-## Global state: command-line args, mouse capture, settings, match setup.
+## Global state: command-line args, mouse capture, settings (quality preset, display, input,
+## audio), match setup, pause plumbing.
+
+signal notice(text: String)          ## short HUD message (quality auto-adjusted, ...)
+signal settings_changed()
 
 const ARENA_SCENE := "res://src/world/toy_room.tscn"
 const MENU_SCENE := "res://src/ui/main_menu.tscn"
+const SETTINGS_PATH := "user://settings.cfg"
+const FPS_CAPS := [0, 60, 120, 144, 240]
+const PROBE_FPS_FLOOR := 50.0        ## auto mode drops one preset when the first match runs below this
 
 var mouse_captured := false
 var mouse_sensitivity := 0.0022
 var headless := false
-var mode := "practice"      ## practice | ffa | tdm
+var mode := "practice"      ## practice | ffa | tdm | elim
 var bot_count := 5
 var skin := "Knight"        ## Skins.ALL id
 var match_active := true
+
+# graphics + display settings (user://settings.cfg)
+var quality := "high"       ## resolved preset: low | medium | high ("none" = untouched, bench only)
+var quality_auto := true    ## chosen by Quality.detect() + the first-match probe, not by hand
+var quality_probed := false
+var render_scale := 1.0
+var vsync := true
+var fps_cap := 0
+var fullscreen := false
+var volume := 1.0
+var gpu_index := 0          ## hybrid laptops: which adapter to render on (needs a relaunch)
+var gpu_name := ""          ## adapter name seen when gpu_index was chosen
+
 var _args := {}
+var _probe_frames: PackedFloat64Array = []
+var trace_enabled := false
+var _trace: Array = []       ## [msec, tag] ring, bench hitch attribution
 
 
 func _init() -> void:
@@ -23,20 +46,93 @@ func _init() -> void:
 
 func _ready() -> void:
     headless = DisplayServer.get_name() == "headless"
+    load_settings()
     if has_arg("mode"):
         mode = arg("mode")
-    bot_count = int(arg("bots", "5"))
+    bot_count = int(arg("bots", str(bot_count)))
     skin = arg("skin", skin)
     if has_arg("timescale"):   # debug: slow motion for effect captures
         Engine.time_scale = float(arg("timescale"))
+    if has_arg("quality"):
+        quality = arg("quality")
+        quality_auto = false
+        quality_probed = true
+        if Quality.is_level(quality):
+            render_scale = Quality.preset(quality).scale
+    if has_arg("scale"):
+        render_scale = float(arg("scale"))
+    if has_arg("bench"):       # measure real frame times: no vsync, no cap, windowed
+        vsync = has_arg("vsync")
+        fps_cap = int(arg("cap", "0"))
+        fullscreen = has_arg("fullscreen")
+    apply_display()
+    _honor_gpu_choice()
+
+
+## The adapter can only be picked at launch (--gpu-index). If the saved choice is not the one
+## we started on, relaunch once with the flag. Never loops: a relaunch carries the flag.
+func _honor_gpu_choice() -> void:
+    if headless or is_capture() or gpu_index <= 0:
+        return
+    var engine_args := OS.get_cmdline_args()
+    if engine_args.has("--gpu-index"):
+        return
+    if RenderingServer.get_video_adapter_name() == gpu_name and not gpu_name.is_empty():
+        return
+    var args := PackedStringArray(["--gpu-index", str(gpu_index)])
+    args.append_array(engine_args)
+    var user_args := OS.get_cmdline_user_args()
+    if not user_args.is_empty():
+        args.append("--")
+        args.append_array(user_args)
+    if OS.create_process(OS.get_executable_path(), args) > 0:
+        get_tree().quit()
+
+
+func set_gpu_index(index: int) -> void:
+    gpu_index = maxi(0, index)
+    gpu_name = ""   # unknown until the relaunch reports it
+    save_settings()
+    if headless:
+        return
+    var args := PackedStringArray(["--gpu-index", str(gpu_index)])
+    if OS.create_process(OS.get_executable_path(), args) > 0:
+        get_tree().quit()
+
+
+func _record_gpu_name() -> void:
+    if gpu_index > 0 and OS.get_cmdline_args().has("--gpu-index") and gpu_name.is_empty():
+        gpu_name = RenderingServer.get_video_adapter_name()
+        save_settings()
 
 
 func has_arg(name: String) -> bool:
     return _args.has(name)
 
 
+## Cheap event log for the benchmark: what happened in the frames before a hitch.
+func trace(tag: String) -> void:
+    if not trace_enabled:
+        return
+    _trace.append([Time.get_ticks_msec(), tag])
+    if _trace.size() > 256:
+        _trace.pop_front()
+
+
+func trace_since(msec: int) -> String:
+    var out := PackedStringArray()
+    for e in _trace:
+        if e[0] >= msec:
+            out.append("%s@%d" % [e[1], e[0]])
+    return " ".join(out)
+
+
 func arg(name: String, default := "") -> String:
     return _args.get(name, default)
+
+
+func is_capture() -> bool:
+    return has_arg("screenshot") or has_arg("bench") or has_arg("fxtest")
 
 
 func set_mouse_captured(captured: bool) -> void:
@@ -46,18 +142,33 @@ func set_mouse_captured(captured: bool) -> void:
     Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if captured else Input.MOUSE_MODE_VISIBLE
 
 
-const SETTINGS_PATH := "user://settings.cfg"
-
+# ---- settings --------------------------------------------------------------------
 
 func load_settings() -> void:
     var cfg := ConfigFile.new()
-    if cfg.load(SETTINGS_PATH) != OK:
-        return
+    var loaded := cfg.load(SETTINGS_PATH) == OK
     skin = cfg.get_value("player", "skin", skin)
     mouse_sensitivity = cfg.get_value("player", "sensitivity", mouse_sensitivity)
     if not has_arg("mode"):
         mode = cfg.get_value("match", "mode", mode)
         bot_count = cfg.get_value("match", "bots", bot_count)
+    vsync = cfg.get_value("display", "vsync", vsync)
+    fps_cap = cfg.get_value("display", "fps_cap", fps_cap)
+    fullscreen = cfg.get_value("display", "fullscreen", fullscreen)
+    volume = cfg.get_value("audio", "volume", volume)
+    gpu_index = cfg.get_value("graphics", "gpu_index", gpu_index)
+    gpu_name = cfg.get_value("graphics", "gpu_name", gpu_name)
+    quality_auto = cfg.get_value("graphics", "auto", true)
+    quality_probed = cfg.get_value("graphics", "probed", false)
+    var saved_quality: String = cfg.get_value("graphics", "quality", "")
+    if not loaded or saved_quality.is_empty() or not Quality.is_level(saved_quality):
+        quality = Quality.detect() if not headless else "high"
+        quality_auto = true
+        quality_probed = false
+        render_scale = Quality.preset(quality).scale
+    else:
+        quality = saved_quality
+        render_scale = cfg.get_value("graphics", "render_scale", Quality.preset(quality).scale)
 
 
 func save_settings() -> void:
@@ -66,16 +177,129 @@ func save_settings() -> void:
     cfg.set_value("player", "sensitivity", mouse_sensitivity)
     cfg.set_value("match", "mode", mode)
     cfg.set_value("match", "bots", bot_count)
+    cfg.set_value("graphics", "quality", quality if Quality.is_level(quality) else "high")
+    cfg.set_value("graphics", "auto", quality_auto)
+    cfg.set_value("graphics", "probed", quality_probed)
+    cfg.set_value("graphics", "render_scale", render_scale)
+    cfg.set_value("graphics", "gpu_index", gpu_index)
+    cfg.set_value("graphics", "gpu_name", gpu_name)
+    cfg.set_value("display", "vsync", vsync)
+    cfg.set_value("display", "fps_cap", fps_cap)
+    cfg.set_value("display", "fullscreen", fullscreen)
+    cfg.set_value("audio", "volume", volume)
     cfg.save(SETTINGS_PATH)
 
+
+## Pick a preset by hand ("low"/"medium"/"high") or hand control back to auto-detection ("auto").
+func set_quality(level: String) -> void:
+    if level == "auto":
+        quality_auto = true
+        quality_probed = false
+        quality = Quality.detect() if not headless else "high"
+    elif Quality.is_level(level):
+        quality = level
+        quality_auto = false
+        quality_probed = true
+    else:
+        return
+    render_scale = Quality.preset(quality).scale
+    apply_quality()
+    save_settings()
+    settings_changed.emit()
+
+
+func set_render_scale(scale: float) -> void:
+    render_scale = clampf(scale, 0.5, 1.0)
+    apply_quality()
+    save_settings()
+    settings_changed.emit()
+
+
+func set_display(new_vsync: bool, new_cap: int, new_fullscreen: bool) -> void:
+    vsync = new_vsync
+    fps_cap = new_cap
+    fullscreen = new_fullscreen
+    apply_display()
+    save_settings()
+    settings_changed.emit()
+
+
+func set_volume(v: float) -> void:
+    volume = clampf(v, 0.0, 1.0)
+    apply_display()
+    save_settings()
+    settings_changed.emit()
+
+
+func set_sensitivity(s: float) -> void:
+    mouse_sensitivity = clampf(s, 0.0004, 0.01)
+    save_settings()
+    settings_changed.emit()
+
+
+func apply_display() -> void:
+    AudioServer.set_bus_volume_db(0, linear_to_db(maxf(volume, 0.0001)))
+    AudioServer.set_bus_mute(0, volume <= 0.0)
+    if headless:
+        return
+    DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if vsync else DisplayServer.VSYNC_DISABLED)
+    Engine.max_fps = fps_cap
+    var want := DisplayServer.WINDOW_MODE_FULLSCREEN if fullscreen else DisplayServer.WINDOW_MODE_WINDOWED
+    if DisplayServer.window_get_mode() != want and not is_capture():
+        DisplayServer.window_set_mode(want)
+
+
+## Push the current preset into whatever arena is loaded (and the root viewport).
+func apply_quality() -> void:
+    _record_gpu_name()
+    Quality.apply_global(quality)
+    Quality.apply_viewport(quality, get_viewport(), render_scale)
+    for node in get_tree().get_nodes_in_group("arena"):
+        var arena := node as ArenaBase
+        if arena:
+            Quality.apply_environment(quality, arena.environment(), arena.sun())
+    for node in get_tree().get_nodes_in_group("post_fx"):
+        node.refresh()
+
+
+## Auto mode only: watch the first seconds of a real match and step down one preset if it
+## cannot hold PROBE_FPS_FLOOR. Runs once, then the result is saved.
+func probe_quality() -> void:
+    if not quality_auto or quality_probed or headless or is_capture() or quality == "low":
+        return
+    await get_tree().create_timer(3.0).timeout   # shader compiles, navmesh bake, GI warm-up
+    _probe_frames = []
+    var t := 0.0
+    while t < 2.0:
+        var before := Time.get_ticks_usec()
+        await get_tree().process_frame
+        var dt := (Time.get_ticks_usec() - before) / 1e6
+        t += dt
+        _probe_frames.append(dt)
+    if _probe_frames.size() < 10 or get_tree().paused:
+        return
+    var avg := t / _probe_frames.size()
+    quality_probed = true
+    if 1.0 / avg < PROBE_FPS_FLOOR:
+        var lowered := Quality.lower(quality)
+        quality = lowered
+        render_scale = Quality.preset(quality).scale
+        apply_quality()
+        notice.emit("Graphics set to %s for a smoother game (Esc > Settings to change)" % Quality.label(quality))
+    save_settings()
+
+
+# ---- scene flow ------------------------------------------------------------------
 
 func start_match(new_mode: String, bots: int) -> void:
     mode = new_mode
     bot_count = bots
+    get_tree().paused = false
     get_tree().change_scene_to_file.call_deferred(ARENA_SCENE)
 
 
 func to_menu() -> void:
+    get_tree().paused = false
     set_mouse_captured(false)
     get_tree().change_scene_to_file.call_deferred(MENU_SCENE)
 
@@ -83,7 +307,12 @@ func to_menu() -> void:
 func _input(event: InputEvent) -> void:
     if get_tree().get_first_node_in_group("player") == null:
         return
+    var pause := get_tree().get_first_node_in_group("pause_menu")
     if event.is_action_pressed("toggle_mouse"):
-        set_mouse_captured(not mouse_captured)
-    elif event is InputEventMouseButton and event.pressed and not mouse_captured and not has_arg("screenshot"):
+        if pause != null and not is_capture():
+            pause.toggle()
+        else:
+            set_mouse_captured(not mouse_captured)
+    elif event is InputEventMouseButton and event.pressed and not mouse_captured and not is_capture() \
+            and not get_tree().paused:
         set_mouse_captured(true)
