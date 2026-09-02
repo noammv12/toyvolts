@@ -95,11 +95,15 @@ func zoom_fov() -> float:
     return d.zoom_fov if aiming else 0.0
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
     # Guns always point where the character aims; melee keeps the hand's own orientation.
     var m := current_model()
     if m == null or character == null or not character.alive:
         return
+    if slot == 5:
+        var barrels := m.get_node_or_null("Barrels") as Node3D
+        if barrels:
+            barrels.rotation.z += delta * current().spin * 30.0
     if data().kind == WeaponData.Kind.MELEE:
         m.rotation = Vector3(deg_to_rad(-90.0), 0.0, 0.0)   # blade up along the forearm
     else:
