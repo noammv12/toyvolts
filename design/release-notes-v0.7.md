@@ -66,7 +66,7 @@ A present for Hila (Lalu) from Noam & Daniel: her own party room, first thing on
   through (balloons, the pinata, gift bows).
 - `PartyZone` areas change movement locally on every peer (bounce / moon / slide), so
   prediction and the host agree without extra packets.
-- 198 headless checks (`tools/test.sh`), 24 loopback checks (`tools/net_test.sh`: a third
+- 199 headless checks (`tools/test.sh`), 24 loopback checks (`tools/net_test.sh`: a third
   phase hosts the party and the client mirrors every prop; the host rewinds the client's shot).
 - Debug: `--map=lalu_party --mode=party`, `--party_finish` (completes the checklist for
   finale captures), `--party_smoke` (the host works through the checklist by itself).

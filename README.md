@@ -93,7 +93,7 @@ times and quits), `--host` / `--join=ip:port` / `--server` with `--port=N` (onli
 ## Develop
 
 - `tools/import.sh` after adding scripts with `class_name` or new assets
-- `tools/test.sh` headless tests (198 checks: bindings, weapons, packets, interpolation, lag compensation, the wave-step at 60 Hz, crouch, combos, radar rules, modes, maps, the party room)
+- `tools/test.sh` headless tests (199 checks: bindings, weapons, packets, interpolation, lag compensation, the wave-step at 60 Hz, crouch, combos, radar rules, modes, maps, the party room)
 - `tools/net_test.sh` two-process loopback smoke: headless host + client, handshake, spawns, a confirmed (lag-compensated) hit, a whole short match, the party room mirrored
 - `tools/shot.sh <name> [--mode=ffa|tdm|elim|ctb|party|practice] [--bots=N] [--map=diner|lalu_party] [--quality=low] [--frames=N] [--pos=x,y,z] [--yaw=deg] [--pitch=deg] [--orbit=deg] [--ui=pause|settings|lobby] [--party_finish]` renders one frame (or a comma list of frames) to `captures/`
 - `tools/synth_sfx.py` / `tools/synth_party.py` regenerate the procedural sounds (party: pops, squeaks, cheers, fireworks, the Happy Birthday chiptune loop)

@@ -839,6 +839,26 @@ func _test_match() -> void:
     _check("bots fire at enemies (%d shots)" % fired, fired > 0)
     _check("status line reports FFA", m.status_line(player).begins_with("FFA"))
 
+    # a hurt bot that just lost sight of its enemy ducks behind whatever is between them
+    var ducker := bots[1] as Bot
+    ducker.velocity = Vector3.ZERO
+    ducker.global_position = Vector3(16, 0.3, 19)     # a pillar stands between...
+    player.global_position = Vector3(16, 0.3, 13)     # ... the bot and both its enemies (flat path, no jumps)
+    bots[0].global_position = Vector3(16, 0.3, 11)
+    Game.match_active = false          # let everyone settle on the floor without wandering off
+    for i in 30:
+        await get_tree().physics_frame
+    ducker.hp = 40.0
+    ducker.target = player
+    ducker._last_seen = 0.5
+    ducker._lost_pos = player.global_position
+    Game.match_active = true
+    for i in 3:
+        await get_tree().physics_frame
+    _check("bots: hurt and out of sight, a bot crouches behind cover (hp %.0f, target %s, sees %s, held %s, floor %s, crouching %s)" % [
+        ducker.hp, ducker.target.display_name if ducker.target else "none", ducker._can_see(player), ducker.crouch_held, ducker.is_on_floor(), ducker.crouching],
+        ducker.crouch_held and ducker.crouching and not ducker._can_see(player))
+
     # health vial heals (bots frozen so nobody interferes)
     Game.match_active = false
     var bot := bots[0] as Character
