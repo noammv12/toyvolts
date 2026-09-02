@@ -44,7 +44,7 @@ var pitch := 0.0
 var wish_dir := Vector3.ZERO
 var jump_pressed := false
 
-var _jumps_left := 0
+var _jumps_used := 0        ## jumps since the last floor contact (max_jumps() can change mid-air)
 var _was_on_floor := false
 var _flash := 0.0
 var _death_serial := 0
@@ -101,7 +101,7 @@ func _physics_process(delta: float) -> void:
     velocity.z = move_toward(velocity.z, wish.z, accel * delta)
 
     if is_on_floor():
-        _jumps_left = max_jumps()
+        _jumps_used = 0
         if not _was_on_floor:
             Sfx.play("land", global_position, -2.0)
         var speed := Vector2(velocity.x, velocity.z).length()
@@ -111,14 +111,18 @@ func _physics_process(delta: float) -> void:
                 _step_t = 0.34
                 Sfx.play("footstep", global_position, 0.0, 0.15)
     else:
-        if _was_on_floor and _jumps_left == max_jumps():
-            _jumps_left -= 1  # walked off a ledge: no free ground jump
+        if _was_on_floor and _jumps_used == 0:
+            _jumps_used = 1  # walked off a ledge: no free ground jump
         velocity.y -= gravity * delta
 
-    if jump_pressed and _jumps_left > 0:
-        velocity.y = jump_velocity
-        _jumps_left -= 1
-        Sfx.play(Sfx.pick(["jump_a", "jump_b", "jump_c"]), global_position)
+    # Microvolts wave-step: any weapon can jump once; melee out (even drawn mid-air) allows a second
+    if jump_pressed and _jumps_used < max_jumps():
+        var second := _jumps_used > 0
+        velocity.y = jump_velocity * (0.92 if second else 1.0)
+        _jumps_used += 1
+        Sfx.play(Sfx.pick(["jump_a", "jump_b", "jump_c"]), global_position, 1.0 if second else 0.0)
+        if second:
+            Vfx.jump_puff(global_position + Vector3(0, 0.15, 0))
     jump_pressed = false
 
     _was_on_floor = is_on_floor()
@@ -127,6 +131,10 @@ func _physics_process(delta: float) -> void:
 
 func max_jumps() -> int:
     return 1 + arsenal.data().extra_jumps
+
+
+func jumps_left() -> int:
+    return max_jumps() - _jumps_used
 
 
 func center() -> Vector3:

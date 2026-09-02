@@ -107,6 +107,18 @@ func _freeze_soon(kind: String, delay_frames: int) -> void:
         await get_tree().process_frame
     get_tree().paused = true
     print("[capture] frozen on ", kind)
+    if Game.has_arg("dump_vfx"):
+        for n in Vfx.get_children():
+            if n is Node3D and n.visible and n.position.y > -50.0:
+                var extra := ""
+                if n is GeometryInstance3D:
+                    extra = " transparency=%.2f" % n.transparency
+                if n is GPUParticles3D:
+                    extra = " emitting=%s amount=%d" % [n.emitting, n.amount]
+                if n is Sprite3D:
+                    extra = " modulate=%s axis=%d billboard=%d" % [n.modulate, n.axis, n.billboard]
+                print("[capture] vfx %s kind=%s pos=%s scale=%s%s" % [n.get_class(), n.get_meta("kind", "?"),
+                    n.global_position, n.scale, extra])
 
 
 ## `frames` may be a single number or a comma list (e.g. "80,90,100"): one PNG per entry,

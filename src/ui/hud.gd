@@ -12,6 +12,7 @@ var _match: MatchController
 var _overlay: Overlay
 var _radar: Radar
 var _damage_flash: ColorRect
+var _kill_flash: ColorRect
 var _hp_bar: HpBar
 var _ammo_label: Label
 var _weapon_label: Label
@@ -347,6 +348,11 @@ func _build() -> void:
     _damage_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     _damage_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
     add_child(_damage_flash)
+    _kill_flash = ColorRect.new()
+    _kill_flash.color = Color(1, 1, 1, 0.0)
+    _kill_flash.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    _kill_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    add_child(_kill_flash)
 
     _overlay = Overlay.new()
     _overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -493,7 +499,13 @@ func _on_hit(killed: bool, headshot: bool) -> void:
     _overlay.hit_kill = killed
     if killed:
         Sfx.play_ui("kill")
-        _popup("KILL" + ("  +  HEADSHOT" if headshot else ""), Color(1, 0.35, 0.3))
+        if _player.arsenal.slot == 4:
+            _popup("ONE SHOT" + ("  +  HEADSHOT" if headshot else ""), Color(1, 0.9, 0.45))
+            _kill_flash.color.a = 0.32
+            var tw := _kill_flash.create_tween()
+            tw.tween_property(_kill_flash, "color:a", 0.0, 0.3)
+        else:
+            _popup("KILL" + ("  +  HEADSHOT" if headshot else ""), Color(1, 0.35, 0.3))
     else:
         Sfx.play_ui("headshot" if headshot else "hit_marker")
         if headshot:

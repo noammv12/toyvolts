@@ -62,3 +62,34 @@ the RTX 3050 running the Low preset at >= 200 fps), High still looks like the v0
 `tools/import.sh` after new class_name scripts or assets → `tools/test.sh` (63 checks) →
 `tools/shot.sh <name> --mode=ffa --frames=200 ...` and look at the PNG → commit → push →
 `tools/export.sh` + `gh release create` for a build. Gotchas are in memory (project_toyvolts.md).
+
+## Results (2026-09-02, v0.4)
+
+Bench: `tools/bench.sh` (idle / 360 sweep / combat, 1600x900, 5 bots, vsync off).
+
+| GPU | none (v0.3) | Low | Medium | High |
+|---|---|---|---|---|
+| RTX 3050 Laptop (dev) | 91 fps, 7.1 ms GPU | 267 fps, 1.4 ms | 157 fps, 3.5 ms | 85 fps, 7.2 ms |
+| Intel UHD iGPU (`--gpu-index 1`) | - | 111 fps, 6.9 ms | 29 fps, 27 ms | 15 fps, 58 ms |
+
+So v0.3 on an iGPU was ~15 fps: that is the "SOOOO LAGGY". Low clears 60 fps there with
+room; Medium is for GTX-1650/RTX-2060 class; High for RTX 30+.
+
+What each preset does: `src/core/quality.gd` (SDFGI/SSIL only on High, SSAO very-low on
+Medium, fog off on Low, MSAA 4x/off/off, FSR2 0.8 on Medium, FSR1 0.66 + FXAA on Low,
+sun shadow 80/50/48 m with 4096/4096/2048 atlas, depth-only outline on Low, mesh LOD bias).
+Low's shadow range must cover the room (48 m): with 30 m the far walls lost their shadow and
+the frame looked washed out.
+
+LightmapGI: `LightmapGI.bake()` is not exposed to scripts in 4.7 (neither runtime nor editor
+`-s`), so the bake needs a manual editor session. Not done; Medium uses ambient 1.0 + SSAO
+instead and looks close to High in the captures (captures/preset_*.png).
+
+CPU: Vfx is fully pooled (no per-shot node/material creation; p99 on Low went 12-16 ms ->
+6.7 ms on the RTX), world kit models share toon materials, figure flash uniforms only upload
+on change. Physics + scripts are ~1 ms; the game is GPU-bound on every preset.
+
+Environmental finding: on this ASUS laptop ANY Godot window rendered on the RTX 3050 freezes
+~500 ms every 1.5-3 s (empty project too; Vulkan, D3D12 and OpenGL; not vsync, audio,
+tablet driver, power plan or joypads). Intel iGPU and headless are clean. Not a game bug;
+the settings GPU pick (`--gpu-index`) is the in-game workaround.

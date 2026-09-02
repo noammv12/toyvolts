@@ -31,8 +31,22 @@ var volume := 1.0
 var gpu_index := 0          ## hybrid laptops: which adapter to render on (needs a relaunch)
 var gpu_name := ""          ## adapter name seen when gpu_index was chosen
 
+var base_time_scale := 1.0
+var _hitstop_serial := 0
 var _args := {}
 var _probe_frames: PackedFloat64Array = []
+
+
+## Freeze-frame for big hits (sniper kills): real-time `seconds` at `scale` speed, then back.
+func hitstop(seconds: float, scale := 0.05) -> void:
+    if headless:
+        return
+    _hitstop_serial += 1
+    var serial := _hitstop_serial
+    Engine.time_scale = base_time_scale * scale
+    await get_tree().create_timer(seconds, true, false, true).timeout
+    if serial == _hitstop_serial:
+        Engine.time_scale = base_time_scale
 var trace_enabled := false
 var _trace: Array = []       ## [msec, tag] ring, bench hitch attribution
 
@@ -52,7 +66,8 @@ func _ready() -> void:
     bot_count = int(arg("bots", str(bot_count)))
     skin = arg("skin", skin)
     if has_arg("timescale"):   # debug: slow motion for effect captures
-        Engine.time_scale = float(arg("timescale"))
+        base_time_scale = float(arg("timescale"))
+        Engine.time_scale = base_time_scale
     if has_arg("quality"):
         quality = arg("quality")
         quality_auto = false

@@ -26,6 +26,7 @@ func _ready() -> void:
     camera.add_child(PostFx.new())
     _noise.frequency = 2.0
     Vfx.shake.connect(_on_world_shake)
+    arsenal.hit_confirmed.connect(_on_hit_confirmed)
     if Game.has_arg("slot"):
         arsenal.select.call_deferred(int(Game.arg("slot")))
     if Game.has_arg("orbit"):   # debug: orbit the camera around the figure (degrees)
@@ -111,7 +112,9 @@ func _process(delta: float) -> void:
     _pitch_node.position = Vector3(0, bob, 0)
     var zf := arsenal.zoom_fov()
     var target_fov := zf if zf > 0.0 else BASE_FOV
-    camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * 14.0))
+    # the sniper scope snaps (quickscope), the rifle zoom eases
+    var zoom_rate := 30.0 if arsenal.data().scope_overlay else 14.0
+    camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * zoom_rate))
 
 
 func apply_kick(deg: float) -> void:
@@ -121,6 +124,17 @@ func apply_kick(deg: float) -> void:
 
 func add_trauma(amount: float) -> void:
     _trauma = clampf(_trauma + amount, 0.0, 1.0)
+
+
+## Sniper kills get the "crunch": a freeze-frame, a heavy kick and a layered thud.
+func _on_hit_confirmed(killed: bool, headshot: bool) -> void:
+    if not killed or arsenal.slot != 4:
+        return
+    add_trauma(0.6)
+    _recoil += deg_to_rad(1.2)
+    Sfx.play_ui("melee_hit", 3.0, 0.0)
+    Sfx.play_ui("explosion", -13.0, 0.0)
+    Game.hitstop(0.12 if headshot else 0.09)
 
 
 func _on_world_shake(pos: Vector3, strength: float) -> void:

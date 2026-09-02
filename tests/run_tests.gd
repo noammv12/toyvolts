@@ -193,6 +193,61 @@ func _test_practice_scene() -> void:
     await _hold(player, true)
     _check("melee heavy hits for 45 (%.0f)" % (hp0 - dummy.hp), is_equal_approx(hp0 - dummy.hp, 45.0))
 
+    # swap-cancel: leaving a weapon drops its recovery, so out-and-back beats the fire interval
+    await _reset(dummy)
+    player.global_position = dummy.global_position + Vector3(0, 0, 9)
+    player.arsenal.select(3)
+    await _wait_swap(player)
+    await _aim_at(player, dummy.center())
+    await _pull_trigger(player)
+    var cd_before: float = player.arsenal.states[2].cooldown
+    player.arsenal.select(1)
+    var cd_after: float = player.arsenal.states[2].cooldown
+    _check("swap-cancel drops the shotgun recovery (%.2f -> %.2f)" % [cd_before, cd_after], cd_before > 0.5 and cd_after == 0.0)
+    player.arsenal.select(3)
+    await _wait_swap(player)
+    _check("shotgun fires again right after the draw", player.arsenal.current().ready_to_fire())
+
+    # wave-step: a gun jump, then melee drawn mid-air grants the second jump
+    player.arsenal.select(2)
+    await _wait_swap(player)
+    for i in 40:
+        await get_tree().physics_frame
+    _check("standing before the jump test", player.is_on_floor())
+    player.jump_pressed = true
+    for i in 3:
+        await get_tree().physics_frame
+    _check("gun jump leaves the floor, no jumps left", not player.is_on_floor() and player.jumps_left() == 0)
+    player.arsenal.select(1)
+    player.jump_pressed = true
+    for i in 3:
+        await get_tree().physics_frame
+    _check("melee drawn mid-air grants a second jump (vy %.1f)" % player.velocity.y,
+        player.velocity.y > 4.0 and player.jumps_left() == 0)
+    for i in 90:
+        await get_tree().physics_frame
+
+    # sniper: unscoped body 55, scoped body = one-shot kill
+    await _reset(dummy)
+    player.arsenal.select(4)
+    await _wait_swap(player)
+    await _aim_at(player, dummy.center())
+    await _pull_trigger(player)
+    _check("unscoped sniper body hit does 55 (%.0f)" % (100.0 - dummy.hp), is_equal_approx(100.0 - dummy.hp, 55.0))
+    await _reset(dummy)
+    player.arsenal.alt = true
+    await get_tree().physics_frame
+    await get_tree().physics_frame
+    player.arsenal.alt = false
+    await get_tree().physics_frame
+    _check("RMB scopes in (level %d)" % player.arsenal.scope_level, player.arsenal.scope_level == 1 and player.arsenal.aiming)
+    await _aim_at(player, dummy.center())
+    await _pull_trigger(player)
+    _check("scoped sniper body shot is a one-shot kill (hp %.0f)" % dummy.hp, not dummy.alive)
+    player.arsenal.scope_level = 0
+    for i in 200:
+        await get_tree().physics_frame
+
     # death + respawn through the match controller
     await _reset(dummy)
     var kills0 := player.kills

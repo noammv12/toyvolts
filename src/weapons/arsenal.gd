@@ -55,7 +55,8 @@ func data() -> WeaponData:
 func select(new_slot: int) -> void:
     if new_slot < 1 or new_slot > 7 or new_slot == slot:
         return
-    current().cancel_reload()   # swap-cancel
+    current().cancel_reload()   # swap-cancel: reload AND recovery are dropped
+    current().cooldown = 0.0    # (Microvolts: fire, swap out, swap back = faster than the fire interval)
     Game.trace("select:%d" % new_slot)
     previous_slot = slot
     slot = new_slot
@@ -125,8 +126,9 @@ func _physics_process(delta: float) -> void:
     var s := current()
     var d := s.data
     if d.scope_overlay:
-        if alt and not _alt_was and swap_left <= 0.0:
+        if alt and not _alt_was and swap_left <= 0.12:   # quickscope: scope in the last frames of the draw
             scope_level = (scope_level + 1) % 3
+            Sfx.play("weapon_change", character.center(), -6.0, 0.0)
         aiming = scope_level > 0
     else:
         aiming = alt and d.zoom_fov > 0.0 and swap_left <= 0.0

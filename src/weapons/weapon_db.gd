@@ -29,7 +29,7 @@ static func _build() -> Array[WeaponData]:
         slot = 1, display_name = "Melee", kind = WeaponData.Kind.MELEE, auto = true,
         damage = 20.0, fire_interval = 0.35, heavy_damage = 45.0, heavy_interval = 0.8,
         clip_size = 0, reserve = 0, melee_range = 1.8, melee_arc_deg = 70.0,
-        run_speed_mult = 1.12, extra_jumps = 1, knockback = 5.0, kick_deg = 0.0,
+        run_speed_mult = 1.15, extra_jumps = 1, knockback = 5.0, kick_deg = 0.0,
         swap_time = 0.18, color = Color(0.55, 0.36, 0.2),
     }))
     list.append(_make({
@@ -48,10 +48,10 @@ static func _build() -> Array[WeaponData]:
     }))
     list.append(_make({
         slot = 4, display_name = "Sniper", kind = WeaponData.Kind.HITSCAN, auto = false,
-        damage = 85.0, headshot_mult = 2.0, spread_deg = 3.0, fire_interval = 1.5,
+        damage = 110.0, headshot_mult = 2.0, spread_deg = 3.0, fire_interval = 1.5,
         clip_size = 5, reserve = 20, reload_time = 2.2,
-        zoom_fov = 18.0, zoom_sens_mult = 0.25, scope_overlay = true, unscoped_damage_mult = 0.47,
-        kick_deg = 2.2, knockback = 3.0, swap_time = 0.35, color = Color(0.2, 0.4, 0.28),
+        zoom_fov = 18.0, zoom_sens_mult = 0.25, scope_overlay = true, unscoped_damage_mult = 0.5,
+        kick_deg = 3.0, knockback = 6.0, swap_time = 0.35, color = Color(0.2, 0.4, 0.28),
     }))
     list.append(_make({
         slot = 5, display_name = "Gatling", kind = WeaponData.Kind.HITSCAN, auto = true,

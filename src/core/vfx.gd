@@ -169,6 +169,19 @@ func muzzle_flash(pos: Vector3, dir := Vector3.ZERO, size := 0.7) -> void:
     _release_after(core, "sprite", 0.07)
 
 
+## Air-jump cue: a white ring puff under the feet.
+func jump_puff(pos: Vector3) -> void:
+    var puff := _sprite(_smoke, Color(1.0, 1.0, 1.0, 0.7), 0.6, false)
+    puff.global_position = pos
+    puff.axis = Vector3.AXIS_Y
+    puff.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+    puff.rotation.z = randf() * TAU
+    var tw := _tween(puff).set_parallel(true)
+    tw.tween_property(puff, "scale", Vector3(2.4, 1.0, 2.4), 0.3).set_ease(Tween.EASE_OUT)
+    tw.tween_property(puff, "modulate:a", 0.0, 0.3)
+    _release_after(puff, "sprite", 0.35)
+
+
 func casing(pos: Vector3, right: Vector3) -> void:
     var p := _acquire("p_casing") as GPUParticles3D
     p.global_position = pos
