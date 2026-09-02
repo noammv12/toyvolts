@@ -35,6 +35,9 @@ var _next_dance := 0.0
 var _cheer_t := 0.0
 var _cheer_until := 0.0
 var cheers := 0
+var _kpop_serial := -1
+var _kpop_in_place := false
+var _kpop_beat := -1
 
 @onready var nav: NavigationAgent3D = $Nav
 
@@ -144,6 +147,10 @@ func _brain(delta: float) -> void:
 func _party_brain(delta: float) -> void:
     arsenal.trigger = false
     arsenal.alt = false
+    var party := get_tree().get_first_node_in_group("party")
+    if party != null and party.kpop_active and party.kpop != null:
+        _kpop_dance(delta, party)
+        return
     _dance_t += delta
     _cheer_t -= delta
     var now := Time.get_ticks_msec() / 1000.0
@@ -174,6 +181,43 @@ func _party_brain(delta: float) -> void:
         _dance_left = randf_range(3.5, 6.5)
         return
     _wander(delta)
+
+
+## The K-pop show: walk to my spot in the formation, face the stage, then sway, hop and cheer
+## on the beat of the manager's shared clock (every guest in sync).
+func _kpop_dance(delta: float, party: Node) -> void:
+    if party.kpop_serial != _kpop_serial:
+        _kpop_serial = party.kpop_serial
+        _kpop_in_place = false
+        _kpop_beat = -1
+        _nav_target = Vector3(INF, INF, INF)
+    var idx := maxi(0, -net_id - 1)
+    var spot: Vector3 = party.kpop.formation_spot(idx)
+    var flat := spot - global_position
+    flat.y = 0.0
+    if not _kpop_in_place:
+        if flat.length() > 1.0:
+            _move_to(spot, delta)
+            _look_along_motion(delta)
+            return
+        _kpop_in_place = true
+    var to_stage: Vector3 = party.kpop.stage_position() - global_position
+    to_stage.y = 0.0
+    if to_stage.length() > 0.1:
+        yaw = lerp_angle(yaw, atan2(-to_stage.x, -to_stage.z), minf(1.0, delta * 6.0))
+    pitch = lerpf(pitch, 0.0, minf(1.0, delta * 4.0))
+    var beat: float = party.kpop_t * PartyKpop.BPM / 60.0
+    var side := Vector3(-cos(yaw), 0, sin(yaw))
+    var pull := flat.normalized() * clampf(flat.length() - 0.3, 0.0, 0.5) if flat.length() > 0.3 else Vector3.ZERO
+    wish_dir = side * sin(beat * PI) * 0.7 + pull
+    var bi := int(beat)
+    if bi != _kpop_beat:
+        _kpop_beat = bi
+        if bi % 4 == 0 and is_on_floor():
+            jump_pressed = true
+        if bi % 8 == 4:
+            figure.play_action("cheer", 0.9)
+            cheers += 1
 
 
 ## The finale: cheer for `seconds` (hop, sway, "Cheer" clip).
@@ -364,7 +408,8 @@ func _move_to(p: Vector3, delta: float) -> void:
     var rise := dir.y
     dir.y = 0.0
     wish_dir = dir.normalized() if dir.length() > 0.05 else Vector3.ZERO
-    if is_on_floor() and rise > 0.45 and dir.length() < 1.6:
+    # the baked navmesh floats ~0.5 m above the floor: only a real step (1 m stairs, crates) is a jump
+    if is_on_floor() and rise > 0.8 and dir.length() < 1.6:
         jump_pressed = true
     if wish_dir != Vector3.ZERO and velocity.length() < 0.5:
         _stuck_t += delta

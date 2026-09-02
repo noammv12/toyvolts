@@ -26,6 +26,14 @@ A present for Hila (Lalu) from Noam & Daniel: her own party room, first thing on
   to the guests (candles, balloons, pinata hits and burst, gifts and who opened them, the
   finale and the reset), late joiners get the current state. Loopback-tested.
 - Runs on Low on an integrated GPU (`--quality=low` if the auto-detect picks too high).
+- Three things Hila loves, in the room: a **K-pop stage** at the edge of the dance floor
+  (shoot the red PLAY button: a K-pop track plays, the stage lights strobe on the beat, the
+  floor pulses and all five guests line up on the dance floor for a synchronised routine);
+  **Rich**, the family's grey-silver American Bully who looks like a hippo, asleep on his
+  cushion by the couch corner (climb him; shoot him and he lifts his head, barks twice, wags
+  and sheds hearts); **Chuchu** the bulbul on a perch by the window (she sings every few
+  seconds; shoot her and she flies a loop around the whole room, singing, then lands). Both
+  join the finale. All three are mirrored online.
 
 ## Key bindings
 
@@ -66,7 +74,7 @@ A present for Hila (Lalu) from Noam & Daniel: her own party room, first thing on
   through (balloons, the pinata, gift bows).
 - `PartyZone` areas change movement locally on every peer (bounce / moon / slide), so
   prediction and the host agree without extra packets.
-- 199 headless checks (`tools/test.sh`), 24 loopback checks (`tools/net_test.sh`: a third
+- 207 headless checks (`tools/test.sh`), 25 loopback checks (`tools/net_test.sh`: a third
   phase hosts the party and the client mirrors every prop; the host rewinds the client's shot).
 - Debug: `--map=lalu_party --mode=party`, `--party_finish` (completes the checklist for
   finale captures), `--party_smoke` (the host works through the checklist by itself).

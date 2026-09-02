@@ -95,6 +95,7 @@ check captures/net_client3.log "\[net\] party candle 0 -> 0"              "phase
 check captures/net_client3.log "\[net\] party balloon 0 -> 1"             "phase 3: client mirrors the balloon"
 check captures/net_client3.log "\[net\] party gift 2 -> 1"                "phase 3: client mirrors the gift"
 check captures/net_client3.log "\[net\] party pinata 0 -> 100"            "phase 3: client mirrors the pinata burst"
+check captures/net_client3.log "\[net\] party kpop 0 -> 1"                "phase 3: client mirrors the K-pop show"
 check captures/net_host3.log   "\[party\] smoke done"                     "phase 3: host finished its checklist run"
 if grep -qE "SCRIPT ERROR|ERROR: .*rpc|Parse Error" captures/net_host3.log captures/net_client3.log; then
     grep -E "SCRIPT ERROR|ERROR: .*rpc|Parse Error" captures/net_host3.log captures/net_client3.log | head -5

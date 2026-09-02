@@ -55,6 +55,9 @@ func _build() -> void:
     _balloons()
     _banner_and_signs()
     _streamers_and_lights()
+    _hila_eggs()
+    if Game.has_arg("kpop"):   # capture: the show is on from the start
+        party.kpop_start.call_deferred()
     if Game.has_arg("party_smoke") and Net.is_authority():
         party.smoke()
     if Game.has_arg("party_finish") and Net.is_authority():
@@ -314,6 +317,7 @@ func _dance_floor() -> void:
     var m := ShaderMaterial.new()
     m.shader = DISCO
     mi.material_override = m
+    party.disco = m
     floor_body.add_child(mi)
     add_child(floor_body)
     box_count += 1
@@ -355,9 +359,8 @@ func _dance_floor() -> void:
         _light(DANCE_POS + Vector3(-3, 6.5, -3), PartyText.TEAL, 2.2, 14.0),
     ]
     add_child(spinner)
-    # speakers
+    # a speaker box (the stage at the north edge brings its own stacks)
     _place(PROTO + "Box_B.gltf", DANCE_POS + Vector3(-7.5, 0, 6.5), 0.0, 3.0)
-    _place(PROTO + "Box_B.gltf", DANCE_POS + Vector3(-7.5, 0, -6.5), 0.0, 3.0)
 
 
 class PartySpinner extends Node:
@@ -517,7 +520,7 @@ func _balloons() -> void:
         anchors.append([TABLE_POS + off, 3.0])
     # dance floor edge
     for i in 6:
-        var a := i * TAU / 6.0
+        var a := i * TAU / 6.0 + PI / 6.0   # none straight in front of the stage
         anchors.append([DANCE_POS + Vector3(sin(a) * 6.0, 0.3, cos(a) * 6.0), 3.5 + (i % 2) * 1.2])
     # castle towers
     for x in [-5.4, 5.4]:
@@ -667,6 +670,26 @@ func _streamers_and_lights() -> void:
     _light(Vector3(-23, 8.5, -3), Color(1.0, 0.88, 0.65), 2.5, 20.0)
     _place(FURN + "lamp_standing.gltf", Vector3(23, 0, 16), 0.0, K)
     _light(Vector3(23, 8.5, 16), Color(1.0, 0.88, 0.65), 2.5, 20.0)
+
+
+## Hila's three things: a K-pop stage on the dance floor, Rich asleep on his cushion, Chuchu
+## on a perch by the window.
+func _hila_eggs() -> void:
+    var stage := PartyKpop.new()
+    stage.position = Vector3(DANCE_POS.x, 0, DANCE_POS.z - 8.0)
+    add_child(stage)
+    party.set_kpop(stage)
+    box_count += 2
+    var rich := PartyRich.new()
+    rich.position = Vector3(-11, 0, 17)
+    rich.rotation.y = -0.27   # his head toward the birthday girl's spawn
+    add_child(rich)
+    party.set_rich(rich)
+    box_count += 1
+    var bird := PartyChuchu.new()
+    bird.position = Vector3(21.5, 0, -3)
+    add_child(bird)
+    party.set_chuchu(bird)
 
 
 func _wall_point(wall: int, t: float) -> Vector3:

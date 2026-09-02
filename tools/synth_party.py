@@ -149,3 +149,76 @@ for i, name in enumerate(bass[:int(total_beats)]):
 song = song[:int(SR*total_beats*BEAT)]
 save('party_theme', norm(lp(song, 9000), 0.55))
 print('done, theme %.1f s' % (total_beats*BEAT))
+
+# ---- Hila's three things: Rich the bully (woof), Chuchu the bulbul (song), a K-pop loop ------
+# Rich: a big dog's double bark: pitch-dropping thump + bandpassed "wo-of" body
+def bark(f0=210, f1=80, dur=0.16):
+    body = sine(dur, f0, f1) * env(dur, 0.004, 0.1, 0.2, 0.04)
+    breath = bp(noise(dur), 350, 1600) * env(dur, 0.004, 0.09, 0.15, 0.05) * 0.9
+    return soft(fit(body * 1.2, breath, lp(noise(0.05), 500) * env(0.05, 0.001, 0.03, 0, 0.02) * 0.8), 2.2)
+save('woof', norm(fit(bark(), at(bark(190, 70, 0.19), 0.24)), 0.85))
+# Chuchu: a bulbul's bubbly fluty phrase, five quick notes with slides and a little vibrato
+notes = [(2400, 3100, 0.07), (3000, 2300, 0.08), (2700, 3300, 0.06), (3400, 2600, 0.09), (2500, 3200, 0.11)]
+song = np.zeros(int(SR * 0.75)); pos = 0.04
+for f0, f1, dur in notes:
+    tt = t(dur); f = np.linspace(f0, f1, len(tt)) * (1 + 0.02*np.sin(2*np.pi*55*tt))
+    n = (np.sin(2*np.pi*np.cumsum(f)/SR) + 0.25*np.sin(2*np.pi*np.cumsum(2*f)/SR)) * env(dur, 0.008, dur*0.6, 0.5, 0.02)
+    o = int(pos*SR); song[o:o+len(n)] += n[:len(song)-o]
+    pos += dur + 0.045
+save('chirp', norm(song, 0.5))
+# K-pop: 128 BPM dance loop, 8 bars (15 s): kick, clap, hats, sidechained saw bass, a detuned
+# pentatonic hook and a square arpeggio over C - G - Am - F
+BPM = 128.0; B = 60.0 / BPM; BARS = 8; total = BARS * 4 * B
+mix = np.zeros(int(SR * total) + 200)
+def put(x, when, gain=1.0):
+    o = int(when * SR); n = min(len(x), len(mix) - o)
+    if n > 0: mix[o:o+n] += x[:n] * gain
+def kick(): return soft(fit(sine(0.28, 160, 42) * env(0.28, 0.001, 0.2, 0, 0.06), hp(noise(0.012), 2000) * env(0.012, 0.0005, 0.008, 0, 0.003) * 0.6), 2.0)
+def clap():
+    c = np.zeros(int(SR * 0.16))
+    for k, off in enumerate([0.0, 0.012, 0.026]):
+        x = bp(noise(0.12), 900, 3500) * env(0.12, 0.001, 0.07, 0.1, 0.05)
+        o = int(off * SR); c[o:o+len(x)] += x[:len(c)-o] * (0.8 if k < 2 else 1.0)
+    return c
+def hat(open_=False):
+    d = 0.16 if open_ else 0.045
+    return hp(noise(d), 7500) * env(d, 0.0005, d*0.7, 0.05 if open_ else 0, d*0.3)
+chords = [('C', [130.81, 261.63, 329.63, 392.0]), ('G', [98.0, 196.0, 246.94, 293.66]),
+          ('A', [110.0, 220.0, 261.63, 329.63]), ('F', [87.31, 174.61, 220.0, 261.63])]
+HOOK = ['E5','E5','G5','.','E5','D5','C5','.','D5','D5','E5','.','G5','.','E5','.',
+        'C5','C5','D5','.','E5','.','D5','C5','.','A4','.','C5','D5','.','C5','.']
+FREQ = {'A4': 440.0, 'C5': 523.25, 'D5': 587.33, 'E5': 659.25, 'G5': 783.99}
+sixteenth = B / 4.0
+for bar in range(BARS):
+    root, tones = chords[(bar // 2) % 4]
+    t0 = bar * 4 * B
+    for beat in range(4):
+        put(kick(), t0 + beat * B, 0.95)
+        if beat in (1, 3): put(clap(), t0 + beat * B, 0.55)
+        put(hat(), t0 + beat * B, 0.22); put(hat(beat == 3), t0 + beat * B + B / 2, 0.28 if beat == 3 else 0.18)
+        # bass: root on the beat, octave up on the off-beat, sidechain dip right after each kick
+        for k, (frac, f) in enumerate([(0.0, tones[0]), (0.5, tones[0] * 2)]):
+            d = B * 0.45
+            b = (saw(d, f) * 0.6 + sine(d, f / 2) * 0.5) * env(d, 0.003, d*0.6, 0.5, 0.05)
+            sc = 1.0 - 0.7 * np.exp(-t(d) * 22) if frac == 0.0 else 1.0
+            put(lp(b, 900) * sc, t0 + (beat + frac) * B, 0.5)
+        # arpeggio: 16ths climbing the chord an octave up
+        for s in range(4):
+            f = tones[1 + (s % 3)] * 2
+            a = square(sixteenth * 0.9, f, 0.25) * env(sixteenth * 0.9, 0.002, sixteenth * 0.5, 0.3, 0.02)
+            put(lp(a, 5000), t0 + beat * B + s * sixteenth, 0.09)
+    # hook: two bars per repeat, with a detuned pair + an octave-down square, sidechained
+    for s in range(16):
+        tok = HOOK[(bar % 2) * 16 + s]
+        if tok == '.': continue
+        f = FREQ[tok]
+        d = sixteenth * 1.15
+        for s2 in range(s + 1, 16):   # sustain across following rests
+            if HOOK[(bar % 2) * 16 + s2] == '.': d += sixteenth
+            else: break
+        lead = (saw(d, f * 1.004) + saw(d, f * 0.996) + 0.5 * square(d, f / 2, 0.5)) * env(d, 0.004, d*0.5, 0.55, 0.05)
+        sc = 1.0 - 0.35 * np.exp(-np.mod(t(d) + s * sixteenth, B) * 20)
+        put(lp(lead, 4200) * sc, t0 + s * sixteenth, 0.16)
+mix = mix[:int(SR * total)]
+save('kpop_theme', norm(soft(mix, 1.15), 0.62))
+print('eggs done, kpop %.1f s' % total)

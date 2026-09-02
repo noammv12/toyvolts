@@ -16,8 +16,11 @@ the bows on the five gifts (spring toy, jack-in-the-box, coin rain, a puppy that
 fireworks). Bouncy castle = double jumps and bouncy landings, moon corner = low gravity, a
 slide from the table, a disco floor, confetti cannons. No PvP: shooting a guest (or Noam and
 Daniel online) makes them hop and cheer. Complete the checklist for the finale (confetti
-storm, fireworks, orbiting camera, the card), then it resets. Hostable from the lobby
-(mode Birthday Party); every prop is mirrored to the guests.
+storm, fireworks, orbiting camera, the card), then it resets. Easter eggs: the K-pop stage
+(shoot PLAY: the track, strobing lights, every guest in a synchronised routine), Rich the
+hippo-like bully asleep on his cushion (shoot: barks and wags), Chuchu the bulbul on her
+perch (shoot: she flies a loop around the room). Hostable from the lobby (mode Birthday
+Party); every prop is mirrored to the guests.
 
 Capture the Battery: red vs blue, grab one of the three batteries (yellow beam), run it to
 your team's CHARGE pad; first to 5. Carriers run 10 % slower and drop the cell when they die.
@@ -93,7 +96,7 @@ times and quits), `--host` / `--join=ip:port` / `--server` with `--port=N` (onli
 ## Develop
 
 - `tools/import.sh` after adding scripts with `class_name` or new assets
-- `tools/test.sh` headless tests (199 checks: bindings, weapons, packets, interpolation, lag compensation, the wave-step at 60 Hz, crouch, combos, radar rules, modes, maps, the party room)
+- `tools/test.sh` headless tests (207 checks: bindings, weapons, packets, interpolation, lag compensation, the wave-step at 60 Hz, crouch, combos, radar rules, modes, maps, the party room)
 - `tools/net_test.sh` two-process loopback smoke: headless host + client, handshake, spawns, a confirmed (lag-compensated) hit, a whole short match, the party room mirrored
 - `tools/shot.sh <name> [--mode=ffa|tdm|elim|ctb|party|practice] [--bots=N] [--map=diner|lalu_party] [--quality=low] [--frames=N] [--pos=x,y,z] [--yaw=deg] [--pitch=deg] [--orbit=deg] [--ui=pause|settings|lobby] [--party_finish]` renders one frame (or a comma list of frames) to `captures/`
 - `tools/synth_sfx.py` / `tools/synth_party.py` regenerate the procedural sounds (party: pops, squeaks, cheers, fireworks, the Happy Birthday chiptune loop)

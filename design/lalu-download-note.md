@@ -6,8 +6,11 @@ Daniel and I built you a game. It's a toy shooter, but the first button on the s
 **LALU'S BIRTHDAY** - your own party room. Blow out the 12 candles on the cake (shoot them),
 pop all 30 balloons, whack the pinata 10 times, and shoot the bows on the five presents to see
 what's inside (one of them follows you around). There's a bouncy castle, a moon corner where you
-float, a slide from the table, and a dance floor. Finish the checklist in the top-left and
-something happens. Then it resets so you can do it again.
+float, a slide from the table, and a dance floor with a K-pop stage: shoot the red PLAY button
+and watch the guests. Rich is sleeping on his cushion (yes, you can climb him; shoot him, he
+barks) and Chuchu is on her perch by the window (shoot her and she flies a lap around the
+room). Finish the checklist in the top-left and something happens. Then it resets so you can
+do it again.
 
 **Download:** https://github.com/noammv12/toyvolts/releases/tag/v0.7 → `ToyVolts-win64.zip`.
 Unzip anywhere, run `ToyVolts.exe`. If Windows complains it's from an unknown publisher, click

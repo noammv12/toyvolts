@@ -20,6 +20,7 @@ const GAIN := {   # per-sound dB trims
     "balloon_pop": -4.0, "squeak": -8.0, "cheer": -6.0, "pinata_hit": -4.0, "pinata_burst": -2.0,
     "gift_open": -6.0, "boing": -8.0, "coin": -10.0, "firework_launch": -8.0, "firework_burst": -3.0,
     "candle_out": -8.0, "confetti_pop": -6.0, "party_horn": -6.0, "fanfare": -4.0,
+    "woof": -1.0, "chirp": -7.0,
 }
 
 var _streams := {}

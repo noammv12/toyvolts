@@ -841,7 +841,13 @@ func _test_match() -> void:
 
     # a hurt bot that just lost sight of its enemy ducks behind whatever is between them
     var ducker := bots[1] as Bot
-    ducker.velocity = Vector3.ZERO
+    Game.match_active = false          # nobody dies or respawns while we stage this
+    for c in [ducker, bots[0], player]:   # the fight may have killed someone: bring them back where we put them
+        c.alive = true
+        c.hp = 100.0
+        c.collision_layer = Character.LAYER_CHARACTER
+        c.visible = true
+        c.velocity = Vector3.ZERO
     ducker.global_position = Vector3(16, 0.3, 19)     # a pillar stands between...
     player.global_position = Vector3(16, 0.3, 13)     # ... the bot and both its enemies (flat path, no jumps)
     bots[0].global_position = Vector3(16, 0.3, 11)
@@ -1142,6 +1148,50 @@ func _test_party() -> void:
     for i in 8:
         await get_tree().physics_frame
     _check("party: leaving the zones restores normal movement", player.zone_gravity_mult == 1.0 and player.zone_jump_mult == 1.0 and player.zone_push == Vector3.ZERO)
+
+    # Hila's three things: Rich barks and wags, Chuchu flies a loop and lands, PLAY starts the show
+    _check("party: Rich, Chuchu and the K-pop stage are in the room", party.rich != null and party.chuchu != null and party.kpop != null)
+    party.rich.on_shot(player, party.rich.head_position(), Vector3.FORWARD, null)
+    _check("party: shooting Rich makes him bark and wag (barks %d, happy %.1f s)" % [party.rich.barks, party.rich.happy_left],
+        party.rich.barks == 1 and party.rich.happy_left > 3.0)
+    var perch := party.chuchu.perch_position()
+    party.chuchu.flight_seconds = 3.0
+    party.chuchu.on_shot(player, perch, Vector3.FORWARD, null)
+    for i in 60:
+        await get_tree().physics_frame
+    var away := party.chuchu.bird_position().distance_to(perch)
+    _check("party: Chuchu takes off when shot (%.1f m from the perch, flying %s)" % [away, party.chuchu.flying], party.chuchu.flying and away > 3.0)
+    for i in 200:
+        await get_tree().physics_frame
+    var back_d := party.chuchu.bird_position().distance_to(perch)
+    _check("party: ... and lands back on the perch (%.2f m off, flights %d)" % [back_d, party.chuchu.flights], not party.chuchu.flying and back_d < 0.3 and party.chuchu.flights == 1)
+    party.kpop_seconds = 9.5
+    for i in bots.size():   # start the guests a short walk south of the floor (the routine is what we test, not a room crossing)
+        bots[i].velocity = Vector3.ZERO
+        bots[i].global_position = Vector3(8.0 + i * 3.0, 0.3, 23.5)
+    for i in 10:
+        await get_tree().physics_frame
+    party.kpop.on_shot(player, party.kpop.button_position(), Vector3.FORWARD, null)
+    _check("party: the PLAY button starts the K-pop show (stage lit %s, music swapped %s)" % [party.kpop.active, party.music.stream == party.kpop_stream],
+        party.kpop_active and party.kpop.active and party.music.stream == party.kpop_stream and party.disco.get_shader_parameter("speed") > 3.0)
+    for i in 420:
+        await get_tree().physics_frame
+    var in_formation := 0
+    for b in bots:
+        var spot: Vector3 = party.kpop.formation_spot(-b.net_id - 1)
+        if Vector2(b.global_position.x - spot.x, b.global_position.z - spot.z).length() < 2.5:
+            in_formation += 1
+    _check("party: the guests line up on the dance floor for the routine (%d/5 in formation)" % in_formation, in_formation >= 4)
+    for i in 200:
+        await get_tree().physics_frame
+    _check("party: the show ends and the birthday theme returns", not party.kpop_active and not party.kpop.active and party.music.stream == party.theme_stream)
+    party.apply_remote("kpop", 0, 1, null, Vector3.ZERO)
+    var has_kpop := false
+    for s in party.remote_states():
+        if s[0] == "kpop":
+            has_kpop = true
+    _check("party: a remote PLAY starts the show here and late joiners hear about it", party.kpop_active and has_kpop)
+    party.kpop_stop()
 
     # network mirror: remote events + the late-joiner state list
     party.apply_remote("candle", 3, 0, null, Vector3.ZERO)

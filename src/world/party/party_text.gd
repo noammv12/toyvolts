@@ -21,6 +21,17 @@ const MODE_BLURB := "Blow out the candles, pop the balloons, break the pinata, o
 
 const GUESTS := ["Sprinkles", "Bubbles", "Muffin", "Confetti", "Pixie", "Jelly", "Waffle"]
 
+## Hila's three things: K-pop, Rich the bully, Chuchu the bulbul
+const KPOP_SIGN := "K-POP STAGE"
+const KPOP_SUB := "shoot PLAY for the show"
+const KPOP_HINT := "shoot PLAY  -  everybody dance!"
+const KPOP_KO := "케이팝"                 ## shown only when KPOP_KO_OK (the default font renders Hangul)
+const KPOP_KO_OK := true
+const RICH_NAME := "RICH"
+const RICH_SUB := "the hippo"
+const CHUCHU_NAME := "CHUCHU"
+const CHUCHU_SUB := "shoot me, I fly!"
+
 ## pink / gold / teal party palette
 const PINK := Color(0.98, 0.45, 0.68)
 const HOT_PINK := Color(0.96, 0.28, 0.58)

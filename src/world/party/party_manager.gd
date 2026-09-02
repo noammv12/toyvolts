@@ -23,6 +23,17 @@ var finale_active := false
 var finale_seconds := FINALE_SECONDS
 var finales := 0
 var music: AudioStreamPlayer
+var theme_stream: AudioStreamWAV
+var kpop_stream: AudioStreamWAV
+var rich: PartyRich                 ## Hila's three things
+var chuchu: PartyChuchu
+var kpop: PartyKpop
+var disco: ShaderMaterial          ## the dance floor: pulses faster during the K-pop show
+var kpop_active := false
+var kpop_seconds := 32.0
+var kpop_left := 0.0
+var kpop_t := 0.0                  ## seconds since the show started (the guests dance to it)
+var kpop_serial := 0
 var _capsules: Array[ItemCapsule] = []
 var _finale_serial := 0
 
@@ -32,19 +43,35 @@ func _ready() -> void:
     fx = PartyFx.new()
     fx.name = "Fx"
     add_child(fx)
-    var stream := Sfx._streams.get("party_theme") as AudioStreamWAV
-    if stream != null:
-        var loop := stream.duplicate() as AudioStreamWAV
-        loop.loop_mode = AudioStreamWAV.LOOP_FORWARD
-        loop.loop_begin = 0
-        loop.loop_end = loop.data.size() / 2
+    theme_stream = _loop_stream("party_theme")
+    kpop_stream = _loop_stream("kpop_theme")
+    if theme_stream != null:
         music = AudioStreamPlayer.new()
-        music.stream = loop
+        music.stream = theme_stream
         music.volume_db = -11.0
         music.autoplay = false
         add_child(music)
         if not Game.headless:
             music.play()
+
+
+func _loop_stream(name: String) -> AudioStreamWAV:
+    var stream := Sfx._streams.get(name) as AudioStreamWAV
+    if stream == null:
+        return null
+    var loop := stream.duplicate() as AudioStreamWAV
+    loop.loop_mode = AudioStreamWAV.LOOP_FORWARD
+    loop.loop_begin = 0
+    loop.loop_end = loop.data.size() / 2
+    return loop
+
+
+func _process(delta: float) -> void:
+    if kpop_active:
+        kpop_t += delta
+        kpop_left -= delta
+        if kpop_left <= 0.0:
+            kpop_stop()
 
 
 # ---- registration (the map calls these while it builds) -------------------------------
@@ -76,6 +103,62 @@ func set_pinata(p: PartyPinata) -> void:
 func add_cannon(c: PartyCannon) -> void:
     c.index = cannons.size()
     cannons.append(c)
+
+
+func set_rich(r: PartyRich) -> void:
+    rich = r
+    r.barked.connect(func(_r: PartyRich) -> void: Net.party_event("rich", 0, 1, 0, Vector3.ZERO))
+
+
+func set_chuchu(c: PartyChuchu) -> void:
+    chuchu = c
+    c.took_off.connect(func(_c: PartyChuchu) -> void: Net.party_event("chuchu", 0, 1, 0, Vector3.ZERO))
+
+
+func set_kpop(k: PartyKpop) -> void:
+    kpop = k
+    k.play_pressed.connect(func(_k: PartyKpop) -> void:
+        if not kpop_active:
+            Net.party_event("kpop", 0, 1, 0, Vector3.ZERO)
+            kpop_start())
+
+
+# ---- the K-pop show: track, strobing stage, every guest in formation ----------------------
+
+func kpop_start() -> void:
+    if kpop_active or kpop == null:
+        return
+    kpop_active = true
+    kpop_serial += 1
+    kpop_left = kpop_seconds
+    kpop_t = 0.0
+    kpop.set_active(true)
+    if music != null and kpop_stream != null:
+        music.stream = kpop_stream
+        music.volume_db = -8.0
+        if not Game.headless:
+            music.play()
+    if disco != null:
+        disco.set_shader_parameter("speed", 3.4)
+    Sfx.play("cheer", kpop.stage_position() + Vector3(0, 2, 6), -2.0, 0.1)
+    fx.confetti(kpop.stage_position() + Vector3(0, 2.5, 1.5), Vector3.UP, 80.0, 100)
+    changed.emit()
+
+
+func kpop_stop() -> void:
+    if not kpop_active:
+        return
+    kpop_active = false
+    kpop_left = 0.0
+    kpop.set_active(false)
+    if music != null and theme_stream != null:
+        music.stream = theme_stream
+        music.volume_db = -11.0
+        if not Game.headless:
+            music.play()
+    if disco != null:
+        disco.set_shader_parameter("speed", 1.4)
+    changed.emit()
 
 
 # ---- checklist ------------------------------------------------------------------------
@@ -168,6 +251,10 @@ func start_finale() -> void:
     Sfx.play_ui("party_horn", -4.0, 0.05)
     Sfx.play("cheer", cake_top, 2.0, 0.05)
     fx.storm(cake_top, true)
+    if chuchu != null:
+        chuchu.fly(true)
+    if rich != null:
+        rich.bark(true)
     for node in get_tree().get_nodes_in_group("bots"):
         if node.has_method("party_cheer"):
             node.party_cheer(finale_seconds - 1.0)
@@ -217,6 +304,7 @@ func reset_all() -> void:
             cap.queue_free()
     _capsules.clear()
     finale_active = false
+    kpop_stop()
     Sfx.play("respawn", cake_top, 0.0, 0.0)
     fx.sparkle(cake_top)
     changed.emit()
@@ -256,6 +344,17 @@ func apply_remote(kind: String, index: int, state: int, who: Character, pos: Vec
             start_finale()
         "reset":
             reset_all()
+        "rich":
+            if rich != null:
+                rich.bark(true)
+        "chuchu":
+            if chuchu != null:
+                chuchu.fly(true)
+        "kpop":
+            if state == 1:
+                kpop_start()
+            else:
+                kpop_stop()
     print("[net] party %s %d -> %d" % [kind, index, state])
     changed.emit()
 
@@ -279,6 +378,8 @@ func remote_states() -> Array:
             out.append(["gift", g.index, 1, Net._id_of(g.opener), Vector3.ZERO])
     if finale_active:
         out.append(["finale", 0, 1, 0, Vector3.ZERO])
+    if kpop_active:
+        out.append(["kpop", 0, 1, 0, Vector3.ZERO])
     return out
 
 
@@ -313,4 +414,7 @@ func smoke() -> void:
         if not is_inside_tree():
             return
         pinata.on_shot(null, pinata.body_position(), Vector3(1, 0, 0), null)
+    await get_tree().create_timer(0.5, false).timeout
+    if is_inside_tree() and kpop != null:
+        kpop.on_shot(null, kpop.button_position(), Vector3.FORWARD, null)
     print("[party] smoke done: %s" % status_line())
