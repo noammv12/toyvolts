@@ -913,6 +913,16 @@ func _test_animation() -> void:
         await get_tree().process_frame
     _check("...and stops the moment it unscopes", not their_glint.visible)
 
+    # every surface flavour draws from the same pools
+    var nodes5 := Vfx.get_child_count()
+    var fx5: int = Vfx.pool_stats().reused + Vfx.pool_stats().created
+    for key in Vfx.SURFACES:
+        Vfx.impact(player.global_position + Vector3(0, 1, -2), Vector3.UP, false, key)
+    _check("every surface impact stays in the pool (+%d uses, +%d nodes)" % [
+        Vfx.pool_stats().reused + Vfx.pool_stats().created - fx5, Vfx.get_child_count() - nodes5],
+        Vfx.get_child_count() - nodes5 <= 2 and Vfx.pool_stats().reused + Vfx.pool_stats().created > fx5)
+    _check("an untagged collider falls back to plastic", Vfx.surface_of(player) == "plastic")
+
     # a melee swing draws a pooled arc ribbon
     player.arsenal.select(1)
     await _wait_swap(player)
@@ -1188,6 +1198,25 @@ func _test_map(key: String, path: String) -> void:
     for i in 90:
         await get_tree().physics_frame
     _check("%s: player stands on the floor" % key, player.is_on_floor() and player.global_position.y > -0.5)
+    # what the map is made of: a shot straight down must find the tagged floor, and every
+    # tagged body must name a surface Vfx actually knows how to draw
+    var down := PhysicsRayQueryParameters3D.create(player.global_position + Vector3(0, 1.0, 0),
+        player.global_position + Vector3(0, -3.0, 0), Character.LAYER_WORLD)
+    var floor_hit := player.get_world_3d().direct_space_state.intersect_ray(down)
+    var floor_surface: String = Vfx.surface_of(floor_hit.collider) if floor_hit else "?"
+    _check("%s: the floor is tagged with what it is made of (%s)" % [key, floor_surface],
+        Vfx.SURFACES.has(floor_surface))
+    var tagged := 0
+    var unknown := PackedStringArray()
+    for node in room.find_children("*", "StaticBody3D", true, false):
+        if not node.has_meta("surface"):
+            continue
+        tagged += 1
+        var s: String = node.get_meta("surface")
+        if not Vfx.SURFACES.has(s) and not unknown.has(s):
+            unknown.append(s)
+    _check("%s: %d bodies carry a known surface (%s)" % [key, tagged, str(unknown)],
+        tagged > 30 and unknown.is_empty())
     # every spawn, battery, base and capsule spot must be clear floor (no launch out of furniture)
     var bad := PackedStringArray()
     var spots: Array = []

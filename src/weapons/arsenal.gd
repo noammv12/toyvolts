@@ -414,7 +414,7 @@ func _fire_hitscan(d: WeaponData) -> void:
                 if prop != null:
                     prop.on_shot(character, hit.position, dir, d)
                     hit_confirmed.emit(false, false)
-            Vfx.impact(hit.position, hit.normal, target != null)
+            Vfx.impact(hit.position, hit.normal, target != null, Vfx.surface_of(hit.collider))
         Vfx.tracer(muzzle, end, Color(1.0, 0.85, 0.45) if slot != 4 else Color(0.6, 0.9, 1.0))
     var m := current_model()
     var right: Vector3 = m.global_transform.basis.x if m else Vector3.RIGHT

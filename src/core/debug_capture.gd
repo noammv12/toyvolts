@@ -89,6 +89,16 @@ func _fx_test(at_frame: int) -> void:
     Vfx.impact(base + r * 1.2 + Vector3(0, -0.3, 0), -f, true)
     Vfx.casing(base + r * -2.0 + Vector3(0, -0.6, 0), r)
     Vfx.explosion(base + f * 4.0 + r * 3.0 + Vector3(0, -1.0, 0), 2.5)
+    # v0.8: one impact per surface along the back row, plus the new melee / death effects
+    var col := 0
+    for key in Vfx.SURFACES:
+        Vfx.impact(base + f * 2.2 + r * (col * 1.1 - 2.2) + Vector3(0, 0.2, 0), Vector3.UP, false, key)
+        col += 1
+    Vfx.swing_arc(base + r * -3.5 + Vector3(0, 0.6, 0), f, 0)
+    Vfx.shockwave(base + r * 2.4 + Vector3(0, -0.9, 0), 1.6)
+    Vfx.star_pop(base + r * 3.4 + Vector3(0, 0.6, 0))
+    Vfx.mag_drop(base + r * -4.4 + Vector3(0, 0.4, 0), r, base.y - 1.0)
+    Vfx.smoke_wisp(base + r * 4.4 + Vector3(0, 0.2, 0), f)
     # persistent probes: plain sprite, noise sprite, additive sprite, glow streak
     var s1 := Sprite3D.new()
     s1.texture = Vfx._radial

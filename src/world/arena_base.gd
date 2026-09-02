@@ -10,6 +10,23 @@ const CHARACTER: PackedScene = preload("res://src/character/character.tscn")
 const PLAYER_COLOR := Color(0.95, 0.42, 0.2)
 const BOT_NET_ID_BASE := -1     ## bots count down from -1 (peer ids are positive)
 const NAV_GROUP := "navmesh_source"
+## What a shot that hits this body sounds and looks like (Vfx.SURFACES). Textured surfaces
+## infer it from the ambientCG set they use; flat-coloured blocks and kit models are toy
+## plastic unless a map says otherwise.
+const SURFACE_BY_TEXTURE := {
+    "Wood": "wood", "Carpet": "fabric", "Fabric": "fabric",
+    "Wallpaper": "paper", "Tiles": "plastic", "Plastic": "plastic",
+}
+## The same idea for kit models, keyed on the file name. Anything unlisted is toy plastic.
+const SURFACE_BY_MODEL := {
+    "kitchencounter": "metal", "kitchencabinet": "metal", "stove": "metal", "oven": "metal",
+    "fridge": "metal", "sink": "metal", "extractorhood": "metal", "dishrack": "metal",
+    "pot_": "metal", "pan_": "metal", "knife": "metal", "Can_": "metal", "Barrel": "metal",
+    "crate": "wood", "chair": "wood", "table": "wood", "cuttingboard": "wood",
+    "cabinet_": "wood", "shelf": "wood", "bookcase": "wood", "door_": "wood",
+    "bed_": "fabric", "couch": "fabric", "pillow": "fabric", "rug": "fabric",
+    "Box_": "paper", "book": "paper", "menu": "paper",
+}
 
 const TEAM_COLORS := {1: Color(0.95, 0.42, 0.2), 2: Color(0.25, 0.5, 0.95)}
 const FFA_COLORS: Array[Color] = [
@@ -28,6 +45,7 @@ var navmesh_polys := 0
 var local_human: Character
 var _mats := {}
 var _scene_cache := {}
+var _mat_surface := {}     ## Material -> surface kind, filled in by _pbr()
 
 
 func _ready() -> void:
@@ -207,11 +225,21 @@ func _bake_navmesh() -> void:
 # ---- building blocks -----------------------------------------------------------
 
 ## Flat-coloured collision box (greybox / toy blocks).
-func _box(center: Vector3, size: Vector3, color: Color, rot := Vector3.ZERO, grid := false) -> StaticBody3D:
-    return _box_mat(center, size, _mat(color, grid), rot)
+func _box(center: Vector3, size: Vector3, color: Color, rot := Vector3.ZERO, grid := false,
+        surface := "") -> StaticBody3D:
+    return _box_mat(center, size, _mat(color, grid), rot, surface)
 
 
-func _box_mat(center: Vector3, size: Vector3, material: Material, rot := Vector3.ZERO) -> StaticBody3D:
+## Mark what a body is made of (Vfx.SURFACES). Maps call this for things the texture cannot
+## tell us about: metal appliances, cardboard boxes, and so on.
+func _tag_surface(body: Node, surface: String) -> Node:
+    if body != null and surface != "":
+        body.set_meta("surface", surface)
+    return body
+
+
+func _box_mat(center: Vector3, size: Vector3, material: Material, rot := Vector3.ZERO,
+        surface := "") -> StaticBody3D:
     var body := StaticBody3D.new()
     body.position = center
     body.rotation = rot
@@ -229,12 +257,14 @@ func _box_mat(center: Vector3, size: Vector3, material: Material, rot := Vector3
     body.add_child(mesh_instance)
     add_child(body)
     box_count += 1
+    _tag_surface(body, surface if surface != "" else _mat_surface.get(material, "plastic"))
     return body
 
 
 ## Instances a kit model (GLTF/GLB), scales it, routes materials through the toon shader and
 ## gives every mesh a trimesh collider that also feeds the navmesh.
-func _place(path: String, pos: Vector3, yaw_deg := 0.0, scale := 1.0, collide := true) -> Node3D:
+func _place(path: String, pos: Vector3, yaw_deg := 0.0, scale := 1.0, collide := true,
+        surface := "") -> Node3D:
     var scene: PackedScene = _scene_cache.get(path)
     if scene == null:
         scene = load(path) as PackedScene
@@ -255,8 +285,18 @@ func _place(path: String, pos: Vector3, yaw_deg := 0.0, scale := 1.0, collide :=
                 if c is StaticBody3D:
                     c.add_to_group(NAV_GROUP)
                     c.collision_layer = Character.LAYER_WORLD
+                    _tag_surface(c, surface if surface != "" else _model_surface(path))
             box_count += 1
     return inst
+
+
+## Guess what a kit model is made of from its file name (see SURFACE_BY_MODEL).
+func _model_surface(path: String) -> String:
+    var file := path.get_file()
+    for tag in SURFACE_BY_MODEL:
+        if file.contains(tag):
+            return SURFACE_BY_MODEL[tag]
+    return "plastic"
 
 
 func _mat(color: Color, grid := false) -> ShaderMaterial:
@@ -281,4 +321,8 @@ func _pbr(color_path: String, normal_path := "", uv_scale := Vector2.ONE, tint :
     if normal_path != "":
         m.set_shader_parameter("normal_tex", load(normal_path))
         m.set_shader_parameter("use_normal_map", true)
+    for tag in SURFACE_BY_TEXTURE:
+        if color_path.contains(tag):
+            _mat_surface[m] = SURFACE_BY_TEXTURE[tag]
+            break
     return m

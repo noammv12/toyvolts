@@ -18,6 +18,21 @@ const POOL_SIZES := {
     "trail_rocket": 4, "trail_grenade": 4,
 }
 
+## Per-surface impact flavour: what flies off, what the puff and the scorch mark look like,
+## and what it sounds like. ArenaBase tags every body with one of these keys.
+const SURFACES := {
+    "plastic": {"puff": Color(0.85, 0.85, 0.88, 0.5), "decal": Color(0.12, 0.1, 0.09, 0.85),
+        "soft": false, "sound": "impact_plastic"},
+    "wood":    {"puff": Color(0.78, 0.62, 0.42, 0.5), "decal": Color(0.16, 0.1, 0.05, 0.8),
+        "soft": false, "sound": "impact_wood"},
+    "metal":   {"puff": Color(0.8, 0.82, 0.86, 0.4), "decal": Color(0.2, 0.2, 0.22, 0.7),
+        "soft": false, "sound": "impact_metal"},
+    "fabric":  {"puff": Color(0.9, 0.86, 0.8, 0.55), "decal": Color(0.18, 0.14, 0.12, 0.6),
+        "soft": true, "sound": "impact_fabric"},
+    "paper":   {"puff": Color(0.94, 0.92, 0.86, 0.5), "decal": Color(0.25, 0.22, 0.18, 0.7),
+        "soft": true, "sound": "impact_paper"},
+}
+
 const PART_LIFE := 3.6         ## how long a burst toy's pieces lie on the floor
 const PART_FADE := 0.5
 
@@ -29,6 +44,7 @@ var _part_meshes: Array[Mesh] = []
 var _part_shape: BoxShape3D
 var _part_phys: PhysicsMaterial
 var _arc_mesh: ArrayMesh
+var _chip_meshes := {}         ## surface -> the debris mesh the impact emitter draws
 var _streak_mesh: BoxMesh
 var _fireball_mesh: SphereMesh
 var _spark_mesh: BoxMesh
@@ -55,6 +71,7 @@ func _ready() -> void:
     _star = _star_tex()
     _build_part_meshes()
     _arc_mesh = _build_arc_mesh()
+    _build_chip_meshes()
     _streak_mesh = BoxMesh.new()
     _streak_mesh.size = Vector3(0.07, 0.07, 1.0)
     _fireball_mesh = SphereMesh.new()
@@ -87,6 +104,8 @@ func _ready() -> void:
     _pmats["p_casing"].angular_velocity_min = -600.0
     _pmats["p_casing"].angular_velocity_max = 600.0
     _pmats["p_impact"] = _pmat(Vector3.UP, 55.0, 3.0, 7.5, Vector3(0, -14, 0), 0.9)
+    # fabric and paper do not spark: the bits drift instead of flying
+    _pmats["p_impact_soft"] = _pmat(Vector3.UP, 70.0, 1.2, 3.0, Vector3(0, -4.5, 0), 2.2)
     _pmats["p_impact_char"] = _pmat(Vector3.UP, 55.0, 3.0, 7.5, Vector3(0, -14, 0), 0.9)
     _pmats["p_debris"] = _pmat(Vector3.UP, 180.0, 5.0, 12.0, Vector3(0, -18, 0), 0.6)
     _pmats["p_debris"].angular_velocity_min = -400.0
@@ -140,7 +159,8 @@ func warm_up() -> void:
     backblast(p, Vector3.FORWARD)
     bounce_spark(p, Vector3.UP)
     fall_apart(p, Color(0.9, 0.5, 0.3))
-    impact(p, Vector3.UP, false)
+    for key in SURFACES:
+        impact(p, Vector3.UP, false, key)
     impact(p, Vector3.UP, true)
     explosion(p, 2.0)
     var probe := Node3D.new()
@@ -266,15 +286,23 @@ func casing(pos: Vector3, right: Vector3) -> void:
     _release_after(p, "p_casing", 1.4)
 
 
-func impact(pos: Vector3, normal: Vector3, on_character: bool) -> void:
+## A bullet landing. On a toy it is always the same red spark; on the map, `surface` picks
+## what flies off, the colour of the puff and the mark, and the sound (see SURFACES).
+func impact(pos: Vector3, normal: Vector3, on_character: bool, surface := "plastic") -> void:
     var kind := "p_impact_char" if on_character else "p_impact"
+    var look: Dictionary = SURFACES.get(surface, SURFACES["plastic"])
     var sparks := _acquire(kind) as GPUParticles3D
+    if not on_character:
+        # swapping a shared mesh / process material reference costs nothing and keeps one
+        # emitter pool for every surface
+        sparks.draw_pass_1 = _chip_meshes.get(surface, _chip_meshes["plastic"])
+        sparks.process_material = _pmats["p_impact_soft" if look.soft else "p_impact"]
     sparks.global_position = pos
     var up := Vector3.UP if absf(normal.y) < 0.99 else Vector3.RIGHT
     # process material direction is +Y: orient +Y along the surface normal
     sparks.global_basis = Basis.looking_at(normal, up) * Basis(Vector3.RIGHT, deg_to_rad(-90.0))
     _release_after(sparks, kind, 0.6)
-    var puff := _sprite(_smoke, Color(0.85, 0.8, 0.75, 0.55) if not on_character else Color(1.0, 0.5, 0.45, 0.5), 0.35, false)
+    var puff := _sprite(_smoke, look.puff if not on_character else Color(1.0, 0.5, 0.45, 0.5), 0.35, false)
     puff.global_position = pos + normal * 0.08
     puff.rotation.z = randf() * TAU
     var tw := _tween(puff).set_parallel(true)
@@ -282,7 +310,14 @@ func impact(pos: Vector3, normal: Vector3, on_character: bool) -> void:
     tw.tween_property(puff, "modulate:a", 0.0, 0.35)
     _release_after(puff, "sprite", 0.4)
     if not on_character:
-        _decal(pos, normal, 0.22, Color(0.12, 0.1, 0.09, 0.85))
+        _decal(pos, normal, 0.22, look.decal)
+        Sfx.play(look.sound, pos, -6.0, 0.12)
+
+
+## What a body is made of, as tagged by the arena (see ArenaBase._tag_surface).
+static func surface_of(collider: Object) -> String:
+    var n := collider as Node
+    return n.get_meta("surface", "plastic") if n != null else "plastic"
 
 
 ## The Microvolts signature: a killed toy bursts into plastic parts that bounce, settle and
@@ -795,6 +830,23 @@ func _build_arc_mesh() -> ArrayMesh:
     var mesh := ArrayMesh.new()
     mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
     return mesh
+
+
+## One debris mesh per surface: splinters, fluff, flakes, shards, sparks.
+func _build_chip_meshes() -> void:
+    var specs := {
+        "plastic": [Vector3(0.05, 0.05, 0.09), Color(0.86, 0.86, 0.9), 0.6],
+        "wood": [Vector3(0.028, 0.028, 0.17), Color(0.6, 0.42, 0.24), 0.0],
+        "metal": [Vector3(0.05, 0.05, 0.12), Color(1.0, 0.9, 0.55), 3.0],
+        "fabric": [Vector3(0.06, 0.06, 0.06), Color(0.92, 0.88, 0.82), 0.0],
+        "paper": [Vector3(0.075, 0.012, 0.075), Color(0.95, 0.93, 0.87), 0.0],
+    }
+    for key in specs:
+        var spec: Array = specs[key]
+        var mesh := BoxMesh.new()
+        mesh.size = spec[0]
+        mesh.material = _particle_mat(spec[1], spec[2])
+        _chip_meshes[key] = mesh
 
 
 func _build_part_meshes() -> void:
