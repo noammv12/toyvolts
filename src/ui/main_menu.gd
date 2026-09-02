@@ -28,6 +28,21 @@ var _skin_blurb: Label
 var _settings: SettingsPanel
 var _settings_dim: ColorRect
 var _lobby: LobbyPanel
+var _hint: Label
+
+
+## The controls hint follows the bindings ("E bazooka" after a rebind).
+func _refresh_hint() -> void:
+    if _hint == null:
+        return
+    var k := func(action: String) -> String: return InputSetup.binding_text(action)
+    var move := "%s%s%s%s" % [k.call("move_forward"), k.call("move_left"), k.call("move_back"), k.call("move_right")]
+    var weapons := PackedStringArray()
+    for i in range(1, 8):
+        weapons.append(k.call("weapon_%d" % i))
+    _hint.text = "%s move   %s jump (melee: double jump)   %s crouch   %s fire   %s aim / heavy swing   %s reload\n%s weapons 1-7   %s / %s next / previous   %s last weapon   %s scoreboard   %s pause / settings" % [
+        move, k.call("jump"), k.call("crouch"), k.call("fire"), k.call("alt_fire"), k.call("reload"),
+        " ".join(weapons), k.call("weapon_next"), k.call("weapon_prev"), k.call("weapon_last"), k.call("scoreboard"), k.call("toggle_mouse")]
 
 
 func open_settings() -> void:
@@ -319,14 +334,14 @@ func _build() -> void:
         skins_row.add_child(b)
         _skin_buttons[s.id] = b
 
-    var hint := Label.new()
-    hint.text = "WASD move   Space jump (melee: double jump)   LMB fire   RMB aim / heavy swing   R reload\n1-7 / wheel / Q weapons   Tab scoreboard   Esc pause / settings"
-    hint.add_theme_font_size_override("font_size", 14)
-    hint.modulate = Color(1, 1, 1, 0.5)
-    hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-    hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+    _hint = Label.new()
+    _hint.add_theme_font_size_override("font_size", 14)
+    _hint.modulate = Color(1, 1, 1, 0.5)
+    _hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
     right.add_child(_spacer(18))
-    right.add_child(hint)
+    right.add_child(_hint)
+    _refresh_hint()
+    Game.settings_changed.connect(_refresh_hint)
 
     _set_mode(_mode)
     _set_bots(_bots)

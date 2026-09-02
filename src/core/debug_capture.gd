@@ -12,6 +12,13 @@ func _ready() -> void:
     process_mode = Node.PROCESS_MODE_ALWAYS
     if Game.has_arg("freeze_on"):
         _arm_freeze(Game.arg("freeze_on"), int(Game.arg("freeze_delay", "3")))
+    if Game.has_arg("bind"):   # --bind=weapon_6:E  (capture only, not saved)
+        var parts := Game.arg("bind").split(":")
+        if parts.size() == 2:
+            var ev := InputEventKey.new()
+            ev.physical_keycode = OS.find_keycode_from_string(parts[1]) as Key
+            InputSetup.bind(parts[0], ev)
+            Game.settings_changed.emit()
     if Game.has_arg("fxtest"):
         _fx_test(int(Game.arg("fxtest", "30")))
     if Game.has_arg("ui"):
@@ -34,8 +41,12 @@ func _show_ui(which: String, at_frame: int) -> void:
     var pause := get_tree().get_first_node_in_group("pause_menu") as PauseMenu
     if pause != null:
         pause.open()
-        if which == "settings":
+        if which == "settings" or which == "controls":
             pause._open_settings()
+        if which == "controls":
+            pause._settings.open_controls()
+            if Game.has_arg("ui_listen"):
+                pause._settings._start_listening(Game.arg("ui_listen"))
         return
     var menu := get_tree().current_scene
     if menu != null and which.begins_with("lobby") and menu.has_method("open_lobby"):

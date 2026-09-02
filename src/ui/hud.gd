@@ -189,7 +189,9 @@ class SlotWidget extends Control:
         if s.uses_ammo() and s.clip == 0 and s.reserve == 0:
             ink = Color(1, 0.4, 0.35, 0.8)
         _icon(Vector2(8, 6), Vector2(size.x - 16, 24), ink)
-        draw_string(ThemeDB.fallback_font, Vector2(5, 14), str(slot), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.8))
+        # the key this slot is bound to ("6", or "E" after a rebind)
+        var key := InputSetup.short_text("weapon_%d" % slot)
+        draw_string(ThemeDB.fallback_font, Vector2(5, 14), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 12 if key.length() <= 2 else 10, Color(1, 1, 1, 0.8))
         var ammo := "--" if not s.uses_ammo() else ("%d" % s.clip if data.reserve == 0 else "%d|%d" % [s.clip, s.reserve])
         draw_string(ThemeDB.fallback_font, Vector2(0, size.y - 6), ammo, HORIZONTAL_ALIGNMENT_CENTER, size.x, 12, ink)
 

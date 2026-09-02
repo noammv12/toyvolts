@@ -12,6 +12,7 @@ var _count := 0
 func _ready() -> void:
     Arsenal.spread_scale = 0.0
     _check("sound bank loaded (%d streams)" % Sfx._streams.size(), Sfx._streams.size() >= 28)
+    _test_bindings()
     _test_weapon_state()
     _test_net_codec()
     _test_net_interp()
@@ -32,6 +33,57 @@ func _check(name: String, ok: bool) -> void:
     if not ok:
         _fails += 1
     print("%s  %s" % ["PASS" if ok else "FAIL", name])
+
+
+# ---- key bindings: rebind, conflicts swap, saved file, boot apply, defaults -------------
+
+func _test_bindings() -> void:
+    var saved := InputSetup.bindings.duplicate()
+    InputSetup.reset_defaults()
+    _check("bindings: every listed action has a default (%d)" % InputSetup.ORDER.size(),
+        InputSetup.ORDER.size() == 21 and InputSetup.bindings.size() == 21 and InputSetup.binding_text("weapon_6") == "6"
+        and InputSetup.binding_text("fire") == "LMB" and InputSetup.binding_text("weapon_next") == "Wheel Up")
+    var e := InputEventKey.new()
+    e.physical_keycode = KEY_E
+    _check("bindings: bazooka rebinds to E", Game.set_binding("weapon_6", e) and InputSetup.binding_text("weapon_6") == "E")
+    var events := InputMap.action_get_events("weapon_6")
+    _check("bindings: the InputMap has exactly one event for weapon_6 and it is E",
+        events.size() == 1 and events[0] is InputEventKey and events[0].physical_keycode == KEY_E)
+    var six := InputEventKey.new()
+    six.physical_keycode = KEY_6
+    _check("bindings: 6 is free again (matches nothing)", not InputMap.event_is_action(six, "weapon_6"))
+    var cfg := ConfigFile.new()
+    var ok := cfg.load(Game.SETTINGS_PATH) == OK
+    _check("bindings: saved to user://settings.cfg [controls] (weapon_6 = %s)" % cfg.get_value("controls", "weapon_6", "?"),
+        ok and cfg.get_value("controls", "weapon_6", "") == "key:%d" % KEY_E and cfg.get_value("controls", "fire", "") == "mouse:%d" % MOUSE_BUTTON_LEFT)
+    # conflict: reload wants E -> the two actions swap keys
+    Game.set_binding("reload", e)
+    _check("bindings: a conflict swaps (reload %s, bazooka %s)" % [InputSetup.binding_text("reload"), InputSetup.binding_text("weapon_6")],
+        InputSetup.binding_text("reload") == "E" and InputSetup.binding_text("weapon_6") == "R")
+    # mouse buttons bind too, and boot applies the saved file
+    var m := InputEventMouseButton.new()
+    m.button_index = MOUSE_BUTTON_XBUTTON1
+    Game.set_binding("jump", m)
+    _check("bindings: a mouse button binds (jump = %s)" % InputSetup.binding_text("jump"), InputSetup.binding_text("jump") == "Mouse 4"
+        and InputMap.event_is_action(m, "jump"))
+    InputSetup.reset_defaults()
+    var cfg2 := ConfigFile.new()
+    cfg2.load(Game.SETTINGS_PATH)
+    InputSetup.read_from(cfg2)
+    _check("bindings: reading the saved file at boot restores E / R / Mouse 4",
+        InputSetup.binding_text("reload") == "E" and InputSetup.binding_text("weapon_6") == "R" and InputSetup.binding_text("jump") == "Mouse 4")
+    _check("bindings: short HUD text (%s, %s)" % [InputSetup.short_text("weapon_next"), InputSetup.short_text("jump")],
+        InputSetup.short_text("weapon_next") == "Wh+" and InputSetup.short_text("toggle_mouse") == "Esc")
+    Game.reset_bindings()
+    var cfg3 := ConfigFile.new()
+    cfg3.load(Game.SETTINGS_PATH)
+    _check("bindings: reset to defaults (file says weapon_6 = %s)" % cfg3.get_value("controls", "weapon_6", "?"),
+        InputSetup.binding_text("weapon_6") == "6" and InputSetup.binding_text("jump") == "Space"
+        and cfg3.get_value("controls", "weapon_6", "") == "key:%d" % KEY_6)
+    # leave the developer's own bindings as they were
+    InputSetup.bindings = saved
+    InputSetup._apply_all()
+    Game.save_settings()
 
 
 # ---- pure logic ----------------------------------------------------------------

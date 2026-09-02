@@ -32,6 +32,12 @@ Item capsules (green = +35 HP, blue = ammo) sit at fixed spots on every map and 
 | 1-7, wheel, Q | switch weapon / last weapon |
 | Tab | scoreboard |
 | Esc | pause: Resume / Settings / Main Menu |
+| L-Ctrl | crouch |
+
+Every key is rebindable: Esc > Settings > **Key bindings...** (or from the title screen). Click
+an action, press a key or mouse button; Esc cancels; a key another action uses swaps the two;
+Reset to defaults. Saved under `[controls]` in `user://settings.cfg`. The weapon strip and the
+title hint show the bound key (bazooka on E shows "E" over slot 6).
 
 Skill notes, straight from Microvolts: fire, swap to melee, swap back and fire again beats
 the weapon's own fire interval (shotgun 0.4 s instead of 0.9 s). Draws are short (melee

@@ -205,6 +205,7 @@ func load_settings() -> void:
     volume = cfg.get_value("audio", "volume", volume)
     gpu_index = cfg.get_value("graphics", "gpu_index", gpu_index)
     gpu_name = cfg.get_value("graphics", "gpu_name", gpu_name)
+    InputSetup.read_from(cfg)   # [controls]: key bindings, applied to the InputMap now
     quality_auto = cfg.get_value("graphics", "auto", true)
     quality_probed = cfg.get_value("graphics", "probed", false)
     var saved_quality: String = cfg.get_value("graphics", "quality", "")
@@ -239,7 +240,23 @@ func save_settings() -> void:
     cfg.set_value("display", "fps_cap", fps_cap)
     cfg.set_value("display", "fullscreen", fullscreen)
     cfg.set_value("audio", "volume", volume)
+    InputSetup.write_to(cfg)
     cfg.save(SETTINGS_PATH)
+
+
+## Controls sheet: rebind one action (swaps on conflict), save, tell the HUD / title hint.
+func set_binding(action: String, event: InputEvent) -> bool:
+    if not InputSetup.bind(action, event):
+        return false
+    save_settings()
+    settings_changed.emit()
+    return true
+
+
+func reset_bindings() -> void:
+    InputSetup.reset_defaults()
+    save_settings()
+    settings_changed.emit()
 
 
 ## Pick a preset by hand ("low"/"medium"/"high") or hand control back to auto-detection ("auto").
