@@ -1,0 +1,77 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://src/world/diner.gd" id="1"]
+[ext_resource type="PackedScene" path="res://src/player/player.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://src/ui/hud.tscn" id="3"]
+[ext_resource type="Script" path="res://src/match/match_controller.gd" id="4"]
+
+[sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
+sky_top_color = Color(0.4, 0.62, 0.95, 1)
+sky_horizon_color = Color(0.85, 0.9, 0.96, 1)
+ground_bottom_color = Color(0.5, 0.5, 0.55, 1)
+ground_horizon_color = Color(0.85, 0.9, 0.96, 1)
+sun_angle_max = 20.0
+sun_curve = 0.2
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 3
+ambient_light_sky_contribution = 1.0
+ambient_light_energy = 0.7
+tonemap_mode = 3
+tonemap_exposure = 1.1
+tonemap_white = 6.0
+ssao_enabled = true
+ssao_radius = 1.2
+ssao_intensity = 2.0
+ssao_power = 1.6
+ssil_enabled = true
+ssil_intensity = 0.9
+sdfgi_enabled = true
+sdfgi_use_occlusion = true
+sdfgi_min_cell_size = 0.3
+sdfgi_bounce_feedback = 0.5
+sdfgi_energy = 1.5
+glow_enabled = true
+glow_intensity = 0.5
+glow_bloom = 0.05
+glow_blend_mode = 0
+glow_hdr_threshold = 1.1
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.004
+volumetric_fog_albedo = Color(0.95, 0.97, 1, 1)
+volumetric_fog_length = 70.0
+volumetric_fog_detail_spread = 2.5
+volumetric_fog_ambient_inject = 0.1
+adjustment_enabled = true
+adjustment_saturation = 1.1
+adjustment_contrast = 1.04
+
+[node name="Arena" type="Node3D"]
+script = ExtResource("1")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-48, -55, 0)
+light_energy = 3.0
+light_color = Color(1, 0.97, 0.9, 1)
+light_angular_distance = 0.8
+light_volumetric_fog_energy = 2.0
+shadow_enabled = true
+shadow_blur = 1.2
+directional_shadow_max_distance = 80.0
+directional_shadow_blend_splits = true
+
+[node name="Env" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="Match" type="Node" parent="."]
+script = ExtResource("4")
+
+[node name="Player" parent="." instance=ExtResource("2")]
+position = Vector3(0, 0.3, 15)
+
+[node name="HUD" parent="." instance=ExtResource("3")]

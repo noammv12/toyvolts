@@ -5,8 +5,13 @@ extends Node
 signal notice(text: String)          ## short HUD message (quality auto-adjusted, ...)
 signal settings_changed()
 
-const ARENA_SCENE := "res://src/world/toy_room.tscn"
 const MENU_SCENE := "res://src/ui/main_menu.tscn"
+const MAPS := {
+    "toy_room": {"name": "Toy Room", "scene": "res://src/world/toy_room.tscn",
+        "blurb": "A kid's bedroom at toy scale: rug arena, bed ramp, dining table high ground."},
+    "diner": {"name": "Diner", "scene": "res://src/world/diner.tscn",
+        "blurb": "A restaurant kitchen: counter island, appliance walls, crate stacks, tiled floor."},
+}
 const SETTINGS_PATH := "user://settings.cfg"
 const FPS_CAPS := [0, 60, 120, 144, 240]
 const PROBE_FPS_FLOOR := 50.0        ## auto mode drops one preset when the first match runs below this
@@ -17,6 +22,7 @@ var headless := false
 var mode := "practice"      ## practice | ffa | tdm | elim
 var bot_count := 5
 var bot_difficulty := "normal"   ## easy | normal | hard (Bot.SKILL_RANGES)
+var map := "toy_room"            ## MAPS key
 var skin := "Knight"        ## Skins.ALL id
 var match_active := true
 
@@ -67,6 +73,8 @@ func _ready() -> void:
     bot_count = int(arg("bots", str(bot_count)))
     if has_arg("difficulty"):
         bot_difficulty = arg("difficulty")
+    if has_arg("map") and MAPS.has(arg("map")):
+        map = arg("map")
     skin = arg("skin", skin)
     if has_arg("timescale"):   # debug: slow motion for effect captures
         base_time_scale = float(arg("timescale"))
@@ -171,6 +179,10 @@ func load_settings() -> void:
         mode = cfg.get_value("match", "mode", mode)
         bot_count = cfg.get_value("match", "bots", bot_count)
         bot_difficulty = cfg.get_value("match", "difficulty", bot_difficulty)
+    if not has_arg("map"):
+        var saved_map: String = cfg.get_value("match", "map", map)
+        if MAPS.has(saved_map):
+            map = saved_map
     vsync = cfg.get_value("display", "vsync", vsync)
     fps_cap = cfg.get_value("display", "fps_cap", fps_cap)
     fullscreen = cfg.get_value("display", "fullscreen", fullscreen)
@@ -197,6 +209,7 @@ func save_settings() -> void:
     cfg.set_value("match", "mode", mode)
     cfg.set_value("match", "bots", bot_count)
     cfg.set_value("match", "difficulty", bot_difficulty)
+    cfg.set_value("match", "map", map)
     cfg.set_value("graphics", "quality", quality if Quality.is_level(quality) else "high")
     cfg.set_value("graphics", "auto", quality_auto)
     cfg.set_value("graphics", "probed", quality_probed)
@@ -315,7 +328,11 @@ func start_match(new_mode: String, bots: int) -> void:
     mode = new_mode
     bot_count = bots
     get_tree().paused = false
-    get_tree().change_scene_to_file.call_deferred(ARENA_SCENE)
+    get_tree().change_scene_to_file.call_deferred(map_scene())
+
+
+func map_scene() -> String:
+    return MAPS.get(map, MAPS["toy_room"]).scene
 
 
 func to_menu() -> void:

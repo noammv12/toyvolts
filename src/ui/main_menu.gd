@@ -16,6 +16,8 @@ var _bots := 5
 var _mode_buttons := {}
 var _skin_buttons := {}
 var _difficulty_buttons := {}
+var _map_buttons := {}
+var _map_blurb: Label
 var _blurb: Label
 var _bots_label: Label
 var _preview_figure: Figure
@@ -53,7 +55,7 @@ func _build() -> void:
     var margin := MarginContainer.new()
     margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
-        margin.add_theme_constant_override(side, 48)
+        margin.add_theme_constant_override(side, 36)
     add_child(margin)
     margin.add_child(root)
 
@@ -73,7 +75,7 @@ func _build() -> void:
     sub.add_theme_font_size_override("font_size", 20)
     sub.modulate = Color(1, 1, 1, 0.7)
     left.add_child(sub)
-    left.add_child(_spacer(18))
+    left.add_child(_spacer(6))
 
     var mode_title := Label.new()
     mode_title.text = "MODE"
@@ -84,8 +86,8 @@ func _build() -> void:
         var b := Button.new()
         b.text = m[1]
         b.toggle_mode = true
-        b.custom_minimum_size = Vector2(330, 44)
-        b.add_theme_font_size_override("font_size", 21)
+        b.custom_minimum_size = Vector2(330, 38)
+        b.add_theme_font_size_override("font_size", 19)
         b.pressed.connect(func() -> void:
             Sfx.play_ui("ui_click")
             _set_mode(m[0]))
@@ -98,7 +100,34 @@ func _build() -> void:
     _blurb.custom_minimum_size = Vector2(330, 40)
     left.add_child(_blurb)
 
-    left.add_child(_spacer(10))
+    left.add_child(_spacer(6))
+    var map_title := Label.new()
+    map_title.text = "MAP"
+    map_title.add_theme_font_size_override("font_size", 14)
+    map_title.modulate = Color(1, 1, 1, 0.5)
+    left.add_child(map_title)
+    var map_row := HBoxContainer.new()
+    map_row.add_theme_constant_override("separation", 8)
+    left.add_child(map_row)
+    for key in Game.MAPS:
+        var b := Button.new()
+        b.text = Game.MAPS[key].name
+        b.toggle_mode = true
+        b.custom_minimum_size = Vector2(160, 40)
+        b.add_theme_font_size_override("font_size", 18)
+        b.pressed.connect(func() -> void:
+            Sfx.play_ui("ui_click")
+            _set_map(key))
+        map_row.add_child(b)
+        _map_buttons[key] = b
+    _map_blurb = Label.new()
+    _map_blurb.add_theme_font_size_override("font_size", 14)
+    _map_blurb.modulate = Color(1, 1, 1, 0.6)
+    _map_blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+    _map_blurb.custom_minimum_size = Vector2(330, 22)
+    left.add_child(_map_blurb)
+
+    left.add_child(_spacer(6))
     var bots_row := HBoxContainer.new()
     bots_row.add_theme_constant_override("separation", 10)
     left.add_child(bots_row)
@@ -222,6 +251,7 @@ func _build() -> void:
     _set_mode(_mode)
     _set_bots(_bots)
     _set_difficulty(Game.bot_difficulty)
+    _set_map(Game.map)
     _set_skin(Game.skin)
 
 
@@ -295,6 +325,15 @@ func _set_mode(mode: String) -> void:
 func _set_bots(n: int) -> void:
     _bots = clampi(n, 1, 7)
     _bots_label.text = str(_bots)
+
+
+func _set_map(key: String) -> void:
+    if not Game.MAPS.has(key):
+        key = "toy_room"
+    Game.map = key
+    for k in _map_buttons:
+        _map_buttons[k].button_pressed = k == key
+    _map_blurb.text = Game.MAPS[key].blurb
 
 
 func _set_difficulty(level: String) -> void:

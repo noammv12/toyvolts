@@ -332,28 +332,54 @@ func _test_match() -> void:
 # ---- toy room map: loads, collides, bakes ---------------------------------------
 
 func _test_toy_room() -> void:
+    for key in Game.MAPS:
+        await _test_map(key, Game.MAPS[key].scene)
+
+
+func _test_map(key: String, path: String) -> void:
     Game.mode = "ffa"
     Game.bot_count = 3
-    var scene := load("res://src/world/toy_room.tscn") as PackedScene
-    _check("toy room scene loads", scene != null)
+    var scene := load(path) as PackedScene
+    _check("%s scene loads" % key, scene != null)
     if scene == null:
         return
     var room: Node3D = scene.instantiate()
     add_child(room)
     await get_tree().process_frame
-    _check("toy room placed > 40 colliders (%d)" % room.box_count, room.box_count > 40)
-    _check("toy room navmesh baked (%d polys)" % room.navmesh_polys, room.navmesh_polys > 80)
+    _check("%s placed > 40 colliders (%d)" % [key, room.box_count], room.box_count > 40)
+    _check("%s navmesh baked (%d polys)" % [key, room.navmesh_polys], room.navmesh_polys > 80)
+    _check("%s has 8 spawns, ctb layout, capsules" % key, room.spawns.size() >= 8 and room.base_positions.size() == 2
+        and room.battery_spawns.size() >= 1 and room.capsule_spawns.size() >= 4)
     var player := room.get_node("Player") as Player
     player.input_enabled = false
     for i in 90:
         await get_tree().physics_frame
-    _check("player stands on the toy room floor", player.is_on_floor() and player.global_position.y > -0.5)
+    _check("%s: player stands on the floor" % key, player.is_on_floor() and player.global_position.y > -0.5)
+    # every spawn, battery, base and capsule spot must be clear floor (no launch out of furniture)
+    var bad := PackedStringArray()
+    var spots: Array = []
+    spots.append_array(room.spawns)
+    spots.append_array(room.battery_spawns)
+    for t in room.base_positions:
+        spots.append(room.base_positions[t])
+    for c in room.capsule_spawns:
+        spots.append(c[0])
+    for p in spots:
+        player.velocity = Vector3.ZERO
+        player.global_position = p
+        for i in 25:
+            await get_tree().physics_frame
+        var moved: Vector3 = player.global_position - p
+        moved.y = maxf(0.0, moved.y)   # settling down onto a top is fine
+        if moved.length() > 0.8:
+            bad.append("%s->%s" % [p, player.global_position])
+    _check("%s: %d spots are clear (%s)" % [key, spots.size(), ", ".join(bad) if not bad.is_empty() else "ok"], bad.is_empty())
     var bots := get_tree().get_nodes_in_group("bots")
     var grounded := 0
     for b in bots:
-        if b.global_position.y > -0.5 and b.global_position.y < 8.0:
+        if b.global_position.y > -0.5 and b.global_position.y < 9.0:
             grounded += 1
-    _check("bots stay inside the room (%d/%d)" % [grounded, bots.size()], grounded == bots.size())
+    _check("%s: bots stay inside (%d/%d)" % [key, grounded, bots.size()], grounded == bots.size())
     room.queue_free()
     await get_tree().process_frame
 

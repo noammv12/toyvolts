@@ -135,6 +135,9 @@ func _capture(path: String, frames_spec: String) -> void:
             await get_tree().process_frame
             frame += 1
         await RenderingServer.frame_post_draw
+        var who := get_tree().get_first_node_in_group("player") as Player
+        if who != null:
+            print("[capture] player at %s  camera at %s" % [who.global_position, who.camera.global_position])
         var img := get_viewport().get_texture().get_image()
         var abs_path := ProjectSettings.globalize_path(path)
         if targets.size() > 1:
