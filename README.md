@@ -83,6 +83,7 @@ Measured at 1600x900 with 5 bots (`tools/bench.sh`):
 |---|---|---|---|
 | RTX 3050 Laptop | 267 fps | 157 fps | 85 fps |
 | Intel UHD (iGPU) | 111 fps | 29 fps | 15 fps |
+| Intel UHD (iGPU), v0.7 | 119 fps (Lalu's Birthday: 102) | - | 17 fps |
 
 Command line: `ToyVolts.exe --quality=low`, `--scale=0.66`, `--map=diner`, `--mode=ctb`,
 `--difficulty=hard`, `--gpu-index 1` (engine flag, before `--`), `--bench` (prints frame
