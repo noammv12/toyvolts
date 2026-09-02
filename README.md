@@ -22,6 +22,15 @@ hippo-like bully asleep on his cushion (shoot: barks and wags), Chuchu the bulbu
 perch (shoot: she flies a loop around the room). Hostable from the lobby (mode Birthday
 Party); every prop is mirrored to the guests.
 
+**Plastic** (v0.8): the toys move and break like plastic. Walk/run blend by speed, jump and
+landing beats with a squash and dust ring, strafe lean, per-weapon stances and a reload
+flourish; directional hit flinches; the Microvolts fall-apart death (plastic parts bounce and
+fade, an orbiting death camera, an assemble effect on respawn); per-weapon effects (shotgun
+cloud, sniper glint others can see, gatling heat glow / smoke / steam, bazooka backblast,
+grenade fuse blink, melee swing ribbons); impacts that know wood from fabric, metal, paper
+and plastic; floating damage numbers and a low-health heartbeat. Spawns are checked for
+standing room against furniture and other toys before anyone is placed.
+
 Capture the Battery: red vs blue, grab one of the three batteries (yellow beam), run it to
 your team's CHARGE pad; first to 5. Carriers run 10 % slower and drop the cell when they die.
 Item capsules (green = +35 HP, blue = ammo) sit at fixed spots on every map and respawn.
@@ -87,6 +96,7 @@ Measured at 1600x900 with 5 bots (`tools/bench.sh`):
 | RTX 3050 Laptop | 267 fps | 157 fps | 85 fps |
 | Intel UHD (iGPU) | 111 fps | 29 fps | 15 fps |
 | Intel UHD (iGPU), v0.7 | 119 fps (Lalu's Birthday: 102) | - | 17 fps |
+| Intel UHD (iGPU), v0.8 | 70 fps (v0.7 same session: 71) | - | - |
 
 Command line: `ToyVolts.exe --quality=low`, `--scale=0.66`, `--map=diner`, `--mode=ctb`,
 `--difficulty=hard`, `--gpu-index 1` (engine flag, before `--`), `--bench` (prints frame
