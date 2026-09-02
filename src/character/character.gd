@@ -17,6 +17,7 @@ const LAYER_WORLD := 1
 const LAYER_CHARACTER := 2
 const SPAWN_PROTECTION := 2.0
 const DEATH_HIDE_DELAY := 1.1
+const JUMP_BUFFER := 0.15    ## seconds a mid-air jump press waits for a jump to become available
 
 @export var display_name := "Toy"
 @export var team := 0
@@ -55,6 +56,7 @@ var jump_pressed := false
 
 var _jumps_used := 0        ## jumps since the last floor contact (max_jumps() can change mid-air)
 var _was_on_floor := false
+var _jump_buffer := 0.0
 var _aim_override := false
 var _aim_origin := Vector3.ZERO
 var _aim_dir := Vector3.FORWARD
@@ -121,6 +123,7 @@ func _physics_process(delta: float) -> void:
 
     if is_on_floor():
         _jumps_used = 0
+        _jump_buffer = 0.0
         if not _was_on_floor:
             Sfx.play("land", global_position, -2.0)
         var speed := Vector2(velocity.x, velocity.z).length()
@@ -134,11 +137,17 @@ func _physics_process(delta: float) -> void:
             _jumps_used = 1  # walked off a ledge: no free ground jump
         velocity.y -= gravity * delta
 
-    # Microvolts wave-step: any weapon can jump once; melee out (even drawn mid-air) allows a second
-    if jump_pressed and _jumps_used < max_jumps():
+    # Microvolts wave-step: any weapon can jump once; melee out (even drawn mid-air) allows a second.
+    # A press with no jump left is kept for JUMP_BUFFER seconds: pressing just before melee is
+    # selected mid-air still double-jumps the tick it is.
+    _jump_buffer = maxf(0.0, _jump_buffer - delta)
+    if jump_pressed and _jumps_used >= max_jumps() and not is_on_floor():
+        _jump_buffer = JUMP_BUFFER
+    if (jump_pressed or _jump_buffer > 0.0) and _jumps_used < max_jumps():
         var second := _jumps_used > 0
         velocity.y = jump_velocity * (0.92 if second else 1.0)
         _jumps_used += 1
+        _jump_buffer = 0.0
         Sfx.play(Sfx.pick(["jump_a", "jump_b", "jump_c"]), global_position, 1.0 if second else 0.0)
         if second:
             Vfx.jump_puff(global_position + Vector3(0, 0.15, 0))

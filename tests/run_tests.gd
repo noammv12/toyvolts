@@ -14,6 +14,7 @@ func _ready() -> void:
     _check("sound bank loaded (%d streams)" % Sfx._streams.size(), Sfx._streams.size() >= 28)
     _test_weapon_state()
     await _test_practice_scene()
+    await _test_wave_step()
     await _test_match()
     await _test_elimination()
     await _test_toy_room()
@@ -260,6 +261,141 @@ func _test_practice_scene() -> void:
     _check("dummy respawns at home with full hp",
         dummy.alive and dummy.hp == 100.0 and dummy.global_position.distance_to(dummy.spawn_home) < 0.6)
 
+    arena.queue_free()
+    await get_tree().process_frame
+
+
+# ---- wave-step: the skill ceiling, frame-accurate at 60 Hz ------------------------------
+## One airtime: shotgun shot, jump, (melee flick = swap-cancel) shotgun shot in the air, swap
+## to melee, double jump mid-air, swap back, third shotgun shot, land. Swaps are quick and
+## presses during a draw are buffered; the jump itself stays 9.5 / gravity 30 / 0.92x.
+
+func _test_wave_step() -> void:
+    Game.mode = "practice"
+    var arena: Node3D = (load(ARENA) as PackedScene).instantiate()
+    add_child(arena)
+    await get_tree().process_frame
+    var player: Character = arena.local_player()
+    player.controller.input_enabled = false
+    var dummy := TARGET_DUMMY.instantiate() as Character
+    dummy.position = player.global_position + Vector3(0, 0, -6)
+    dummy.yaw = PI
+    arena.add_child(dummy)
+    player.arsenal.select(3)
+    for i in 60:
+        await get_tree().physics_frame
+    await _aim_at(player, dummy.center())
+    _check("wave-step: standing with the shotgun up", player.is_on_floor() and player.arsenal.slot == 3
+        and player.arsenal.swap_left == 0.0)
+    var shots: Array = []          # [frame, airborne, height]
+    var frame := [0]
+    var on_fire := func(d: WeaponData) -> void:
+        if d.slot == 3:
+            shots.append([frame[0], not player.is_on_floor(), player.global_position.y])
+    player.arsenal.fired.connect(on_fire)
+
+    # F0 fire, F1 jump, F2 melee (swap-cancel), F6 shotgun (draw 0.25 s = 15 ticks, up at F21),
+    # F18 fire (during the draw: buffered), F22 melee, F24 jump (double jump during the melee
+    # draw), F26 shotgun (up at F41), F38 fire (buffered)
+    var script := {0: "fire", 1: "jump", 2: "sel1", 6: "sel3", 18: "fire", 22: "sel1", 24: "jump", 26: "sel3", 38: "fire"}
+    var floor_frames: Array[int] = []
+    var vy_after_double := 0.0
+    var landed := -1
+    # inputs set after the await are processed by the step that runs at the next await, so the
+    # state seen right after a resume is the result of step f-1
+    for f in 120:
+        await get_tree().physics_frame
+        if f == 25:
+            vy_after_double = player.velocity.y
+        if f >= 2 and player.is_on_floor():
+            floor_frames.append(f - 1)   # the step that ended on the floor
+            if landed < 0:
+                landed = f - 1
+        frame[0] = f
+        player.arsenal.trigger = false
+        match script.get(f, ""):
+            "fire":
+                player.arsenal.trigger = true
+            "jump":
+                player.jump_pressed = true
+            "sel1":
+                player.arsenal.select(1)
+            "sel3":
+                player.arsenal.select(3)
+        if landed >= 0 and f > landed + 3:
+            break
+    player.arsenal.fired.disconnect(on_fire)
+    var shot_frames := PackedStringArray()
+    for sh in shots:
+        shot_frames.append("F%d%s@%.2fm" % [sh[0], " air" if sh[1] else " ground", sh[2]])
+    var summary := "shots %s, landed F%d" % [", ".join(shot_frames), landed]
+    _check("wave-step: three shotgun shots in one airtime (%s)" % summary, shots.size() == 3 and landed > 0
+        and not shots[0][1] and shots[1][1] and shots[2][1] and shots[2][0] < landed)
+    var touched_between := false
+    for ff in floor_frames:
+        if ff >= 2 and shots.size() == 3 and ff <= shots[2][0]:
+            touched_between = true
+    _check("wave-step: feet never touch the floor between the jump and the third shot", not touched_between)
+    _check("wave-step: double jump fires during the melee draw (vy %.1f)" % vy_after_double, vy_after_double > 8.0)
+    _check("wave-step: honest airtime (%d ticks, no float)" % landed, landed >= 55 and landed <= 78)
+    _check("wave-step: buffered shots leave the draw the tick it completes (F%d, F%d)" % [
+        shots[1][0] if shots.size() > 1 else -1, shots[2][0] if shots.size() > 2 else -1],
+        shots.size() == 3 and shots[1][0] >= 20 and shots[1][0] <= 22 and shots[2][0] >= 40 and shots[2][0] <= 42)
+
+    # jump pressed with no jumps left, then melee selected: the press still counts (short buffer)
+    for i in 60:
+        await get_tree().physics_frame
+    player.arsenal.select(3)
+    await _wait_swap(player)
+    for i in 10:
+        await get_tree().physics_frame
+    player.jump_pressed = true
+    for i in 8:
+        await get_tree().physics_frame
+    _check("jump buffer: airborne with the shotgun, no jumps left", not player.is_on_floor() and player.jumps_left() == 0)
+    player.jump_pressed = true          # nothing available yet: remembered
+    await get_tree().physics_frame
+    await get_tree().physics_frame
+    var vy_before := player.velocity.y
+    player.arsenal.select(1)            # melee comes out: the buffered press fires the double jump
+    await get_tree().physics_frame
+    await get_tree().physics_frame
+    _check("jump buffer: press just before melee is out still double-jumps (vy %.1f -> %.1f)" % [vy_before, player.velocity.y],
+        player.velocity.y > vy_before + 2.5 and player.jumps_left() == 0)
+    for i in 90:
+        await get_tree().physics_frame
+
+    # alt pressed during the sniper draw: scoped the tick the rifle comes up (quickscope buffer)
+    player.arsenal.select(2)
+    await _wait_swap(player)
+    player.arsenal.select(4)
+    await get_tree().physics_frame
+    player.arsenal.alt = true
+    await get_tree().physics_frame
+    player.arsenal.alt = false
+    _check("alt buffer: press early in the sniper draw is remembered (level %d, draw %.2f left)" % [
+        player.arsenal.scope_level, player.arsenal.swap_left], player.arsenal.scope_level == 0 and player.arsenal.swap_left > 0.12)
+    await _wait_swap(player)
+    await get_tree().physics_frame
+    await get_tree().physics_frame
+    _check("alt buffer: scoped the tick the draw completes (level %d)" % player.arsenal.scope_level, player.arsenal.scope_level == 1)
+    player.arsenal.scope_level = 0
+
+    # fire pressed during a draw, then a retarget to another weapon: the press belongs to the old draw
+    player.arsenal.select(2)
+    await _wait_swap(player)
+    player.arsenal.select(3)
+    await get_tree().physics_frame
+    player.arsenal.trigger = true
+    await get_tree().physics_frame
+    player.arsenal.trigger = false
+    player.arsenal.select(2)
+    var clip_before: int = player.arsenal.current().clip
+    await _wait_swap(player)
+    for i in 3:
+        await get_tree().physics_frame
+    _check("select mid-draw retargets and drops the buffered press (rifle clip %d)" % player.arsenal.current().clip,
+        player.arsenal.slot == 2 and player.arsenal.current().clip == clip_before)
     arena.queue_free()
     await get_tree().process_frame
 

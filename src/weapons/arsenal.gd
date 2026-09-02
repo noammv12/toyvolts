@@ -2,6 +2,8 @@ class_name Arsenal
 extends Node
 ## Owns the seven weapon slots of one Character and performs attacks.
 ## Controllers (player input, bot brain) only set `trigger`, `alt` and call select()/reload().
+## Draws are short and presses during a draw are buffered: fire / alt pressed while the weapon
+## comes up execute the tick it is up; a select mid-draw retargets the draw instantly.
 
 signal weapon_changed(slot: int, data: WeaponData)
 signal fired(data: WeaponData)
@@ -12,6 +14,10 @@ const SHOT_SOUND := {2: "rifle_shot", 3: "shotgun_shot", 4: "sniper_shot", 5: "g
     6: "bazooka_launch", 7: "grenade_launch"}
 const FLASH_SIZE := {2: 0.7, 3: 1.1, 4: 0.9, 5: 0.6, 6: 1.3, 7: 0.8}
 const WEAPON_SCALE := 1.3   ## toy guns are oversized (and it keeps them visible past the big head)
+const READY_EPS := 0.0005    ## draw countdown snaps to 0 below this (60 Hz float drift)
+const LOWER_TIME := 0.07     ## the outgoing weapon drops for this long before the new one rises
+const ARC_TILT_DEG := 65.0   ## how far the muzzle points down at the bottom of the arc
+const ARC_DROP := 0.32       ## metres the model sits below the grip at the bottom of the arc
 
 static var spread_scale := 1.0   ## tests set 0 for deterministic shots
 
@@ -27,9 +33,13 @@ var scope_level := 0             ## sniper: 0 off, 1 = zoom_fov, 2 = zoom_fov / 
 
 var _trigger_was := false
 var _alt_was := false
+var _buffer_fire := false        ## trigger pressed during the draw: fires the tick the draw ends
+var _buffer_alt := false
 var _models: Array[Node3D] = []
 var _model_tween: Tween
 var _spin_was := false
+var _outgoing := -1              ## slot whose model is still lowering (first LOWER_TIME of a draw)
+var _arc_active := false
 
 
 func _ready() -> void:
@@ -59,11 +69,14 @@ func select(new_slot: int) -> void:
     current().cancel_reload()   # swap-cancel: reload AND recovery are dropped
     current().cooldown = 0.0    # (Microvolts: fire, swap out, swap back = faster than the fire interval)
     Game.trace("select:%d" % new_slot)
+    _outgoing = slot if swap_left <= 0.0 else -1   # mid-draw retarget: nothing to lower
     previous_slot = slot
     slot = new_slot
     swap_left = data().swap_time
     aiming = false
     scope_level = 0
+    _buffer_fire = false   # presses belonged to the draw we just abandoned
+    _buffer_alt = false
     _show_model(slot)
     Sfx.play("weapon_change", character.center(), -4.0)
     weapon_changed.emit(slot, data())
@@ -127,12 +140,41 @@ func _process(delta: float) -> void:
         var barrels := m.get_node_or_null("Barrels") as Node3D
         if barrels:
             barrels.rotation.z += delta * current().spin * 30.0
-    if data().kind == WeaponData.Kind.MELEE:
-        m.rotation = Vector3(deg_to_rad(-90.0), 0.0, 0.0)   # blade up along the forearm
+    # draw arc: the old weapon drops for LOWER_TIME, then the new one rises into the aim pose
+    var d := data()
+    var arc := 0.0            # 0 = up and aimed, 1 = bottom of the arc
+    var shown := m
+    if swap_left > 0.0 and d.swap_time > 0.0:
+        var elapsed := d.swap_time - swap_left
+        var lower := minf(LOWER_TIME, d.swap_time * 0.35)
+        if _outgoing >= 1 and elapsed < lower and _models.size() >= _outgoing:
+            shown = _models[_outgoing - 1]
+            arc = elapsed / lower
+        else:
+            var q := clampf((elapsed - lower) / maxf(d.swap_time - lower, 0.01), 0.0, 1.0)
+            arc = (1.0 - q) * (1.0 - q)   # ease out: fast rise, settles at the top
+        _arc_active = true
+    elif _arc_active:
+        _arc_active = false
+        _outgoing = -1
+        m.position = Vector3.ZERO
+    for i in _models.size():
+        _models[i].visible = _models[i] == shown
+    _pose_model(shown, arc)
+
+
+## Aim pose plus the arc offset (tilted down and dropped by `arc`, 0..1).
+func _pose_model(m: Node3D, arc: float) -> void:
+    var kind: WeaponData.Kind = WeaponDB.for_slot(_models.find(m) + 1).kind if _models.has(m) else data().kind
+    if kind == WeaponData.Kind.MELEE:
+        m.rotation = Vector3(deg_to_rad(-90.0 - ARC_TILT_DEG * arc), 0.0, 0.0)   # blade up along the forearm
     else:
         var dir := character.aim_dir()
         var up := Vector3.UP if absf(dir.y) < 0.99 else Vector3.RIGHT
-        m.global_basis = Basis.looking_at(dir, up)
+        var basis := Basis.looking_at(dir, up)
+        m.global_basis = basis.rotated(basis.x, -deg_to_rad(ARC_TILT_DEG) * arc)
+    if arc > 0.0:
+        m.position = Vector3(0, -ARC_DROP * arc, 0.12 * arc)
 
 
 func _physics_process(delta: float) -> void:
@@ -141,29 +183,49 @@ func _physics_process(delta: float) -> void:
         alt = false
     for i in states.size():
         states[i].tick(delta, trigger and i == slot - 1)
-    swap_left = maxf(0.0, swap_left - delta)
+    if swap_left > 0.0:
+        swap_left = maxf(0.0, swap_left - delta)
+        if swap_left <= READY_EPS:
+            swap_left = 0.0
 
     var s := current()
     var d := s.data
+    var trigger_edge := trigger and not _trigger_was
+    var alt_edge := alt and not _alt_was
+    var drawing := swap_left > 0.0
+    if drawing:
+        # remember presses; they execute the tick the weapon is up
+        if trigger_edge:
+            _buffer_fire = true
+        if alt_edge:
+            _buffer_alt = true
+    var fire_press := (trigger_edge or _buffer_fire) and not drawing
+    var alt_press := (alt_edge or _buffer_alt) and not drawing
+    if not drawing:
+        _buffer_fire = false
+        _buffer_alt = false
+
     if d.scope_overlay:
-        if alt and not _alt_was and swap_left <= 0.12:   # quickscope: scope in the last frames of the draw
+        # quickscope: scope in the last frames of the draw, or the tick it completes when buffered
+        if (alt_edge and drawing and swap_left <= 0.12) or alt_press:
             scope_level = (scope_level + 1) % 3
             Sfx.play("weapon_change", character.center(), -6.0, 0.0)
+            _buffer_alt = false
         aiming = scope_level > 0
     else:
-        aiming = alt and d.zoom_fov > 0.0 and swap_left <= 0.0
+        aiming = alt and d.zoom_fov > 0.0 and not drawing
 
-    if swap_left <= 0.0:
-        var want_fire := trigger and (d.auto or not _trigger_was)
+    if not drawing:
+        var want_fire := (trigger and d.auto) or fire_press
         if want_fire:
             if s.ready_to_fire():
                 _fire(s)
             elif s.uses_ammo() and s.clip == 0:
                 if s.reserve > 0:
                     reload()
-                elif not _trigger_was:
+                elif fire_press:
                     Sfx.play("empty_click", character.center())
-        if d.kind == WeaponData.Kind.MELEE and alt and not _alt_was and s.ready_to_fire():
+        if d.kind == WeaponData.Kind.MELEE and alt_press and s.ready_to_fire():
             _melee(s, d.heavy_damage, d.heavy_interval, true)
         if d.spin_up > 0.0:
             var spinning := trigger and not s.overheated
@@ -335,15 +397,14 @@ func muzzle_position() -> Vector3:
 
 
 func _show_model(which: int) -> void:
+    _kill_tween()
+    if _models.is_empty():
+        return
+    var lowering := _outgoing >= 1 and swap_left > 0.0 and _models.size() >= _outgoing
     for i in _models.size():
-        _models[i].visible = (i == which - 1)
+        _models[i].visible = (i == (_outgoing - 1 if lowering else which - 1))
     if _models.size() >= which and which >= 1:
-        var m := _models[which - 1]
-        m.position = Vector3(0, -0.25, 0.1)
-        _kill_tween()
-        _model_tween = m.create_tween()
-        _model_tween.tween_property(m, "position", Vector3.ZERO, data().swap_time) \
-            .set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+        _models[which - 1].position = Vector3(0, -ARC_DROP, 0.12)
 
 
 func _recoil_model() -> void:
