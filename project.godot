@@ -13,6 +13,7 @@ config/features=PackedStringArray("4.7", "Forward Plus")
 
 InputSetup="*res://src/core/input_setup.gd"
 Game="*res://src/core/game.gd"
+Vfx="*res://src/core/vfx.gd"
 DebugCapture="*res://src/core/debug_capture.gd"
 
 [display]

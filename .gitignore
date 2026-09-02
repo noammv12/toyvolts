@@ -14,3 +14,4 @@ captures/
 # Reference game files are NEVER committed
 reference/
 tests/last_run.log
+.godot_import.log

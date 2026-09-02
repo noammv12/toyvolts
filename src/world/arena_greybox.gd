@@ -3,6 +3,7 @@ extends Node3D
 ## layout is easy to iterate. Replaced by a real map in the art milestone.
 
 const TOON: Shader = preload("res://shaders/toon.gdshader")
+const DUMMY: PackedScene = preload("res://src/world/target_dummy.tscn")
 
 const COL_FLOOR := Color(0.88, 0.85, 0.78)
 const COL_WALL := Color(0.6, 0.72, 0.86)
@@ -16,12 +17,26 @@ const COL_TABLE := Color(0.62, 0.42, 0.28)
 const ROOM := 48.0
 const WALL_H := 6.0
 
+const SPAWNS: Array[Vector3] = [
+    Vector3(0, 0.2, 18), Vector3(0, 0.2, -20), Vector3(20, 0.2, 0), Vector3(-20, 0.2, 0),
+    Vector3(18, 0.2, 18), Vector3(-18, 0.2, -18), Vector3(18, 0.2, -18), Vector3(-18, 0.2, 18),
+]
+const DUMMIES: Array[Vector3] = [Vector3(5, 0.2, 8), Vector3(0, 2.7, 0), Vector3(-12, 0.2, -6)]
+
 var _mats := {}
 var box_count := 0
 
 
 func _ready() -> void:
+    var match_node := get_node_or_null("Match") as MatchController
+    if match_node:
+        match_node.spawn_points = SPAWNS
     _build()
+    for pos in DUMMIES:
+        var d := DUMMY.instantiate() as Character
+        d.position = pos
+        d.yaw = PI  # face the default spawn
+        add_child(d)
 
 
 func _build() -> void:

@@ -12,6 +12,7 @@ uniform float spec_size : hint_range(0.0, 1.0) = 0.08;
 uniform float spec_strength : hint_range(0.0, 1.0) = 0.35;
 uniform bool grid = false;
 uniform float grid_size = 2.0;
+uniform float flash : hint_range(0.0, 1.0) = 0.0;   // hit / spawn-protection whiteout
 
 varying vec3 world_pos;
 
@@ -27,7 +28,7 @@ void fragment() {
         float line = 1.0 - step(0.012, min(d.x, d.y));
         col *= mix(1.0, 0.88, line);
     }
-    ALBEDO = col;
+    ALBEDO = mix(col, vec3(1.0), flash);
     ROUGHNESS = 1.0;
     METALLIC = 0.0;
     SPECULAR = 0.0;

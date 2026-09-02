@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="PackedScene" path="res://src/character/character.tscn" id="1"]
+[ext_resource type="Script" path="res://src/world/target_dummy.gd" id="2"]
+
+[node name="TargetDummy" instance=ExtResource("1")]
+script = ExtResource("2")
+display_name = "Dummy"
+body_color = Color(0.7, 0.72, 0.75, 1)
+respawn_at_home = true
