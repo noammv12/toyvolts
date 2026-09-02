@@ -12,6 +12,7 @@ signal health_changed(hp: float, max_hp: float)
 signal damaged(amount: float, source: Character, headshot: bool)
 signal respawned()
 signal landed(fall_speed: float)     ## cosmetic: hit the floor at this speed (m/s, positive)
+signal fell_apart()                  ## cosmetic death, on the authority AND on clients
 
 const HEAD_SHAPE_INDEX := 1
 const LAYER_WORLD := 1
@@ -24,7 +25,7 @@ const CROUCH_HEIGHT := 0.8
 const CROUCH_SPEED := 0.5    ## run speed multiplier while crouched
 const CROUCH_CAMERA_DROP := 0.45
 const SPAWN_PROTECTION := 2.0
-const DEATH_HIDE_DELAY := 1.1
+const DEATH_HIDE_DELAY := 0.1   ## the parts take over almost immediately
 const JUMP_BUFFER := 0.15    ## seconds a mid-air jump press waits for a jump to become available
 
 @export var display_name := "Toy"
@@ -349,8 +350,7 @@ func take_damage(amount: float, source: Character, _hit_pos: Vector3, impulse: V
     if source != null and source.arsenal != null:
         last_hit_weapon = source.arsenal.data().display_name
     _flash = 1.0
-    if amount >= 25.0:
-        figure.play_action("hit", 0.3)
+    _react_to_hit(source, _hit_pos, impulse, headshot, amount)
     damaged.emit(amount, source, headshot)
     health_changed.emit(hp, max_hp)
     if hp <= 0.0:
@@ -359,6 +359,22 @@ func take_damage(amount: float, source: Character, _hit_pos: Vector3, impulse: V
         return {"applied": true, "killed": true}
     Sfx.play("hurt", center(), -2.0, 0.12)
     return {"applied": true, "killed": false}
+
+
+## Which way did that come from, and how hard? The knockback impulse already points away from
+## the shooter; splash and remote hits fall back to the source's position.
+func _react_to_hit(source: Character, hit_pos: Vector3, impulse: Vector3, headshot: bool,
+        amount: float) -> void:
+    var away := impulse
+    if away.length_squared() < 0.01:
+        away = global_position - (source.global_position if source != null else hit_pos)
+    away.y = 0.0
+    if away.length_squared() < 0.0001:
+        away = -facing()
+    var from_local := global_transform.basis.inverse() * (-away.normalized())
+    figure.play_hit(from_local, headshot, clampf(amount / 40.0, 0.18, 1.0))
+    if headshot:
+        Vfx.star_pop(global_position + Vector3(0, 0.95 if crouching else 1.45, 0))
 
 
 func drop_battery() -> void:
@@ -437,8 +453,7 @@ func damage_remote(amount: float, source: Character, headshot: bool, hp_after: f
     _flash = 1.0
     if source != null and source.arsenal != null:
         last_hit_weapon = source.arsenal.data().display_name
-    if amount >= 25.0:
-        figure.play_action("hit", 0.3)
+    _react_to_hit(source, center(), Vector3.ZERO, headshot, amount)
     damaged.emit(amount, source, headshot)
     health_changed.emit(hp, max_hp)
     if hp > 0.0:
@@ -461,13 +476,15 @@ func _die_visual() -> void:
     collision_layer = 0
     arsenal.trigger = false
     arsenal.alt = false
-    figure.play_death()
+    Vfx.fall_apart(self, body_color, crouching)
+    figure.play_death()   # the fallback pose, under the parts, until the body is hidden
     _death_serial += 1
     var serial := _death_serial
     get_tree().create_timer(DEATH_HIDE_DELAY).timeout.connect(func() -> void:
         if not alive and serial == _death_serial:
             Game.trace("hide:" + display_name)
             visible = false)
+    fell_apart.emit()
 
 
 func respawn(at: Vector3, look_yaw := 0.0) -> void:
@@ -485,6 +502,8 @@ func respawn(at: Vector3, look_yaw := 0.0) -> void:
     _anim_on_floor = true
     _anim_fall_vy = 0.0
     figure.revive()
+    figure.pop_in()
+    Vfx.assemble(at, body_color)
     arsenal.refill_all()
     arsenal.select(2)
     Sfx.play("respawn", center())

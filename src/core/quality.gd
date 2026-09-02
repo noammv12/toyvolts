@@ -16,7 +16,7 @@ const PRESETS := {
         "ambient_energy": 0.9, "sun_energy_mult": 0.95,
         "shadow_distance": 48.0, "shadow_mode": DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS, "shadow_size": 2048,
         "shadow_blend": false, "shadow_blur": 1.0, "soft_shadows": RenderingServer.SHADOW_QUALITY_HARD,
-        "outline_normals": false, "lod_threshold": 4.0,
+        "outline_normals": false, "lod_threshold": 4.0, "fx_parts": 8,
     },
     "medium": {
         "scale": 0.8, "scale_mode": Viewport.SCALING_3D_MODE_FSR2, "msaa": Viewport.MSAA_DISABLED, "fxaa": false,
@@ -26,7 +26,7 @@ const PRESETS := {
         "fog_volume_size": 32, "fog_volume_depth": 48, "fog_filter": false,
         "shadow_distance": 50.0, "shadow_mode": DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS, "shadow_size": 4096,
         "shadow_blend": false, "shadow_blur": 1.0, "soft_shadows": RenderingServer.SHADOW_QUALITY_SOFT_VERY_LOW,
-        "outline_normals": true, "lod_threshold": 2.0,
+        "outline_normals": true, "lod_threshold": 2.0, "fx_parts": 10,
     },
     "high": {
         "scale": 1.0, "scale_mode": Viewport.SCALING_3D_MODE_BILINEAR, "msaa": Viewport.MSAA_4X, "fxaa": false,
@@ -36,7 +36,7 @@ const PRESETS := {
         "fog_volume_size": 64, "fog_volume_depth": 64, "fog_filter": true,
         "shadow_distance": 80.0, "shadow_mode": DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS, "shadow_size": 4096,
         "shadow_blend": true, "shadow_blur": 1.2, "soft_shadows": RenderingServer.SHADOW_QUALITY_SOFT_LOW,
-        "outline_normals": true, "lod_threshold": 1.0,
+        "outline_normals": true, "lod_threshold": 1.0, "fx_parts": 12,
     },
 }
 

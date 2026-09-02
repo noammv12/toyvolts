@@ -13,6 +13,8 @@ var chest_twist_target := 0.0    ## radians the torso turns so a held gun sits b
 var crouch_target := 0.0         ## 0..1: hips drop + forward lean (procedural crouch, no clip in the kit)
 var crouch_drop := 0.42          ## model units the hips sink at full crouch (x0.76 = 0.32 m)
 var move_lean := 0.0             ## extra forward chest lean (radians) while creeping crouched
+var flinch := Vector2.ZERO       ## x = twist, y = pitch: the chest recoils AWAY from a hit
+var head_jerk := 0.0             ## extra head snap on a headshot
 var _crouch := 0.0
 var _move_lean := 0.0
 var _chest_twist := 0.0
@@ -62,6 +64,20 @@ func _process_modification() -> void:
     if absf(_arm_lift) > 0.001:
         for idx in _arms:
             _rotate_about_side(sk, idx, _arm_lift + pitch * (1.0 - chest_weight))
+    if flinch.length_squared() > 0.000004:
+        _rotate_about_side(sk, _chest, flinch.y)
+        _rotate_about(sk, _chest, up_axis, flinch.x)
+        _rotate_about_side(sk, _head, flinch.y * 0.45)
+    if absf(head_jerk) > 0.001:
+        _rotate_about_side(sk, _head, head_jerk)
+
+
+## Hit reactions ease back out. Called from Figure with the frame delta, because
+## _process_modification() has none and the smoothing constants above are per-frame.
+func decay(delta: float) -> void:
+    var k := minf(1.0, delta * 7.0)
+    flinch = flinch.lerp(Vector2.ZERO, k)
+    head_jerk = lerpf(head_jerk, 0.0, k)
 
 
 ## Rotates a bone in skeleton space around the character's side axis (positive = up).

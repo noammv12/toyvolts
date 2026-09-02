@@ -1,7 +1,7 @@
 extends Node
 ## Visual verification loop: run the game with
 ##   tools/godot.sh --path . -- --screenshot=<abs path>.png [--frames=45|"40,60,80"]
-##       [--freeze_on=fire|explode|hit|land|death] [--freeze_delay=3]
+##       [--freeze_on=fire|explode|hit|land|death|respawn] [--freeze_delay=3]
 ## It waits N frames, saves the rendered frame(s) and quits. With --freeze_on the scene is
 ## paused a few frames after the event so short-lived effects can be captured deliberately.
 
@@ -19,6 +19,8 @@ func _ready() -> void:
             ev.physical_keycode = OS.find_keycode_from_string(parts[1]) as Key
             InputSetup.bind(parts[0], ev)
             Game.settings_changed.emit()
+    if Game.has_arg("kill_me"):   # capture: the local toy falls apart on frame N
+        _kill_me(int(Game.arg("kill_me", "60")))
     if Game.has_arg("fxtest"):
         _fx_test(int(Game.arg("fxtest", "30")))
     if Game.has_arg("ui"):
@@ -55,6 +57,18 @@ func _show_ui(which: String, at_frame: int) -> void:
             Net.host(int(Game.arg("port", "7799")))
     elif menu != null and menu.has_method("open_settings"):
         menu.open_settings()
+
+
+## `--kill_me=N`: a deterministic death for the fall-apart / death-camera captures.
+func _kill_me(at_frame: int) -> void:
+    var player: Character = null
+    while player == null:
+        await get_tree().process_frame
+        player = Game.local_player()
+    for i in at_frame:
+        await get_tree().process_frame
+    player.protection_left = 0.0
+    player.take_damage(999.0, null, player.center(), Vector3.ZERO, false)
 
 
 ## Stages every effect a few metres in front of the player and freezes the scene.
@@ -122,6 +136,8 @@ func _arm_freeze(kind: String, delay_frames: int) -> void:
                     _freeze_soon(kind, delay_frames))
         "death":
             player.died.connect(func(_v: Character, _k: Character) -> void: _freeze_soon(kind, delay_frames))
+        "respawn":
+            player.respawned.connect(func() -> void: _freeze_soon(kind, delay_frames))
 
 
 func _freeze_soon(kind: String, delay_frames: int) -> void:

@@ -36,6 +36,8 @@ var _rig_y := 1.55
 var _cine_left := 0.0
 var _cine_t := 0.0
 var _cine_center := Vector3.ZERO
+var _cine_mode := "room"      ## "room" = the party finale orbit, "death" = around your own parts
+var _cine_ray: PhysicsRayQueryParameters3D   ## keeps the death camera out of the furniture
 
 
 ## Instance the controller scene under `c` (which must already be inside the tree).
@@ -61,6 +63,8 @@ func _ready() -> void:
     character.arsenal.hit_confirmed.connect(_on_hit_confirmed)
     character.arsenal.weapon_changed.connect(_on_weapon_changed)
     character.damaged.connect(_on_damaged)
+    character.fell_apart.connect(_on_fell_apart)
+    character.respawned.connect(_on_respawned)
     if Game.has_arg("slot"):
         character.arsenal.select.call_deferred(int(Game.arg("slot")))
     if Game.has_arg("orbit"):   # debug: orbit the camera around the figure (degrees)
@@ -233,21 +237,26 @@ func _process(delta: float) -> void:
     if _cine_left > 0.0:
         _cine_left -= delta
         _cine_t += delta
-        var a := _cine_t * 0.42
-        var r := 19.0 - 2.5 * sin(_cine_t * 0.3)   # inside the walls, clear of the mirror ball and the pinata
-        _cine_cam.global_position = Vector3(_cine_center.x + sin(a) * r, 9.0 + 1.0 * sin(_cine_t * 0.5), _cine_center.z + cos(a) * r)
-        _cine_cam.look_at(_cine_center + Vector3(0, 2.0, 0), Vector3.UP)
+        if _cine_mode == "death":
+            var a := _cine_t * 0.55
+            var r := 3.9 + 0.5 * sin(_cine_t * 0.7)
+            var eye := _cine_center + Vector3(sin(a) * r, 1.8 + 0.3 * sin(_cine_t * 0.9), cos(a) * r)
+            _cine_cam.global_position = _clear_of_walls(_cine_center + Vector3(0, 0.5, 0), eye)
+            _cine_cam.look_at(_cine_center + Vector3(0, 0.2, 0), Vector3.UP)
+        else:
+            var a := _cine_t * 0.42
+            var r := 19.0 - 2.5 * sin(_cine_t * 0.3)   # inside the walls, clear of the mirror ball and the pinata
+            _cine_cam.global_position = Vector3(_cine_center.x + sin(a) * r, 9.0 + 1.0 * sin(_cine_t * 0.5), _cine_center.z + cos(a) * r)
+            _cine_cam.look_at(_cine_center + Vector3(0, 2.0, 0), Vector3.UP)
         if _cine_left <= 0.0:
-            var fx := get_tree().get_first_node_in_group("post_fx")
-            if fx != null and fx.get_parent() == _cine_cam:
-                fx.reparent(camera, false)   # the outline quad goes back to the player camera
-            camera.current = true
-            _cine_cam.queue_free()
-            _cine_cam = null
+            end_cinematic()
 
 
-## Party finale: orbit the room centre for `seconds`, then hand the view back.
-func cinematic(center: Vector3, seconds: float) -> void:
+## Hand the view to an orbiting camera for `seconds`, then give it back.
+##   "room"  - the party finale, high and wide around the cake
+##   "death" - close around the pile of parts you just became
+func cinematic(center: Vector3, seconds: float, mode := "room") -> void:
+    _cine_mode = mode
     _cine_center = center
     _cine_left = seconds
     _cine_t = 0.0
@@ -263,6 +272,34 @@ func cinematic(center: Vector3, seconds: float) -> void:
             if Game.has_arg("no_postfx"):
                 fx.visible = false
     _cine_cam.current = true
+
+
+## A free camera would sit inside the sofa. Pull it in to the first wall between the subject
+## and where it wants to be, the way the player's SpringArm does.
+func _clear_of_walls(from: Vector3, want: Vector3) -> Vector3:
+    if _cine_ray == null:
+        _cine_ray = PhysicsRayQueryParameters3D.new()
+        _cine_ray.collision_mask = Character.LAYER_WORLD
+    _cine_ray.from = from
+    _cine_ray.to = want
+    var hit := get_world_3d().direct_space_state.intersect_ray(_cine_ray)
+    if hit.is_empty():
+        return want
+    var pulled: Vector3 = hit.position + (from - want).normalized() * 0.3
+    return Vector3(pulled.x, maxf(pulled.y, from.y - 0.2), pulled.z)
+
+
+## Give the view back to the player camera (also called early when you respawn).
+func end_cinematic() -> void:
+    _cine_left = 0.0
+    if _cine_cam == null:
+        return
+    var fx := get_tree().get_first_node_in_group("post_fx")
+    if fx != null and fx.get_parent() == _cine_cam:
+        fx.reparent(camera, false)   # the outline quad goes back to the player camera
+    camera.current = true
+    _cine_cam.queue_free()
+    _cine_cam = null
 
 
 func cinematic_active() -> bool:
@@ -306,6 +343,20 @@ func _on_hit_confirmed(killed: bool, headshot: bool) -> void:
     Sfx.play_ui("melee_hit", 3.0, 0.0)
     Sfx.play_ui("explosion", -13.0, 0.0)
     Game.hitstop(0.12 if headshot else 0.09)
+
+
+## Death camera: lift off the toy and orbit the pile of parts until the respawn.
+func _on_fell_apart() -> void:
+    if Game.headless or _cine_left > 0.0:
+        return
+    var rules := get_tree().get_first_node_in_group("match") as MatchController
+    var seconds: float = rules.respawn_delay if rules != null else 3.0
+    cinematic(character.global_position + Vector3(0, 0.35, 0), maxf(0.7, seconds - 0.3), "death")
+
+
+func _on_respawned() -> void:
+    if _cine_mode == "death":
+        end_cinematic()
 
 
 func _on_world_shake(pos: Vector3, strength: float) -> void:

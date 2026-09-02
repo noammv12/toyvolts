@@ -793,6 +793,77 @@ func _test_animation() -> void:
     await get_tree().process_frame
     _check("melee has no magazine to drop", Vfx._free["mag"].size() == mags1)
 
+    # --- hit reactions: which way did it come from ---------------------------------
+    var dummy := TARGET_DUMMY.instantiate() as Character
+    dummy.position = player.global_position + Vector3(0, 0, -6)
+    dummy.yaw = PI                       # facing the player
+    arena.add_child(dummy)
+    for i in 30:
+        await get_tree().physics_frame
+    var df: Figure = dummy.figure
+    dummy.take_damage(30.0, player, dummy.center(), Vector3.ZERO, false)
+    await get_tree().process_frame
+    _check("a hit from the front plays the front flinch (%s)" % df.last_action, df.last_action == "hit")
+    _check("...and kicks the chest backwards (%.3f)" % df.aim_modifier.flinch.y, df.aim_modifier.flinch.y > 0.05)
+    dummy.hp = 100.0
+    dummy.take_damage(30.0, null, dummy.global_position - dummy.facing(), Vector3.ZERO, false)
+    await get_tree().process_frame
+    _check("a hit from behind plays the back flinch (%s)" % df.last_action, df.last_action == "hit_back")
+    var flinch0: float = absf(df.aim_modifier.flinch.y)
+    for i in 40:
+        await get_tree().process_frame
+    _check("the flinch eases back out (%.3f -> %.3f)" % [flinch0, absf(df.aim_modifier.flinch.y)],
+        absf(df.aim_modifier.flinch.y) < flinch0 * 0.2)
+    dummy.hp = 100.0
+    var stars0: int = Vfx.pool_stats().reused + Vfx.pool_stats().created
+    dummy.take_damage(20.0, player, dummy.center(), Vector3.ZERO, true)
+    _check("a headshot pops a star", Vfx.pool_stats().reused + Vfx.pool_stats().created > stars0)
+
+    # --- the toy falls apart -------------------------------------------------------
+    dummy.hp = 100.0
+    var parts0: int = Vfx._free["part"].size()
+    var nodes2 := Vfx.get_child_count()
+    dummy.take_damage(999.0, player, dummy.center(), Vector3.ZERO, false)
+    await get_tree().process_frame
+    var used: int = parts0 - Vfx._free["part"].size()
+    _check("death bursts the toy into pooled parts (%d parts, +%d nodes)" % [used, Vfx.get_child_count() - nodes2],
+        used >= 8 and Vfx.get_child_count() - nodes2 == 0)
+    var piece: RigidBody3D = null
+    for n in Vfx.get_children():
+        if n is RigidBody3D and n.visible:
+            piece = n
+            break
+    _check("a piece is loose but cannot push a toy (layer %d, mask %d, frozen %s)" % [
+        piece.collision_layer if piece else -1, piece.collision_mask if piece else -1,
+        str(piece.freeze) if piece else "?"],
+        piece != null and piece.collision_layer == 0
+            and piece.collision_mask == Character.LAYER_WORLD and not piece.freeze)
+    for i in 20:
+        await get_tree().process_frame
+    _check("the broken toy body is hidden almost at once", not dummy.visible)
+
+    # --- respawn assembles it again ------------------------------------------------
+    dummy.respawn(dummy.spawn_home, 0.0)
+    await get_tree().process_frame
+    _check("respawn pops the figure back in from nothing (scale %.2f)" % df.scale.y, df.scale.y < 0.6)
+    _check("respawn makes the toy visible again", dummy.visible and dummy.alive)
+    for i in 45:
+        await get_tree().process_frame
+    _check("the assembled toy settles at full size (%.2f)" % df.scale.y, df.scale.is_equal_approx(Vector3.ONE))
+
+    # the pieces go back to the pool on their own
+    for i in 260:
+        await get_tree().physics_frame
+    _check("the pieces return to the pool (%d free)" % Vfx._free["part"].size(),
+        Vfx._free["part"].size() >= parts0 - 1)
+
+    # --- the death camera plumbing (the real trigger is skipped headless) -----------
+    # (headless has no wall clock to wait on, so drive the two ends directly)
+    player.controller.cinematic(player.global_position + Vector3(0, 0.35, 0), 3.0, "death")
+    _check("the death camera takes the view", player.controller.cinematic_active())
+    player.respawned.emit()
+    _check("respawning hands the view straight back", not player.controller.cinematic_active())
+
     arena.queue_free()
     await get_tree().process_frame
 

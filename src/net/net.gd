@@ -963,6 +963,7 @@ func _ev_died(net_id: int, killer_id: int, weapon: String) -> void:
     if c != null:
         c.last_hit_weapon = weapon
         c.die_remote(_char(killer_id))
+        print("[net] fell apart C%d (%s)" % [net_id, weapon])
 
 
 @rpc("authority", "call_remote", "reliable")

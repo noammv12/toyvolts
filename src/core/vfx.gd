@@ -11,14 +11,21 @@ signal shake(pos: Vector3, strength: float)   ## the local player converts this 
 
 const MAX_DECALS := 96
 const POOL_SIZES := {
-    "tracer": 24, "light": 8, "sprite": 48, "fireball": 4, "decal": 32, "mag": 6,
+    "tracer": 24, "light": 8, "sprite": 48, "fireball": 4, "decal": 32, "mag": 6, "part": 36,
     "p_casing": 12, "p_impact": 16, "p_impact_char": 8, "p_debris": 4, "p_sparks": 4,
     "trail_rocket": 4, "trail_grenade": 4,
 }
 
+const PART_LIFE := 3.6         ## how long a burst toy's pieces lie on the floor
+const PART_FADE := 0.5
+
 var _radial: GradientTexture2D
 var _ring: GradientTexture2D
 var _smoke: ImageTexture
+var _star: ImageTexture
+var _part_meshes: Array[Mesh] = []
+var _part_shape: BoxShape3D
+var _part_phys: PhysicsMaterial
 var _streak_mesh: BoxMesh
 var _fireball_mesh: SphereMesh
 var _spark_mesh: BoxMesh
@@ -42,6 +49,8 @@ func _ready() -> void:
     _radial = _gradient_tex([Color(1, 1, 1, 1), Color(1, 1, 1, 0.35), Color(1, 1, 1, 0)], [0.0, 0.35, 1.0])
     _ring = _gradient_tex([Color(1, 1, 1, 0), Color(1, 1, 1, 0), Color(1, 1, 1, 1), Color(1, 1, 1, 0)], [0.0, 0.6, 0.8, 1.0])
     _smoke = _smoke_tex()
+    _star = _star_tex()
+    _build_part_meshes()
     _streak_mesh = BoxMesh.new()
     _streak_mesh.size = Vector3(0.07, 0.07, 1.0)
     _fireball_mesh = SphereMesh.new()
@@ -118,6 +127,8 @@ func warm_up() -> void:
     casing(p, Vector3.RIGHT)
     mag_drop(p + Vector3(0, 0.4, 0), Vector3.RIGHT, p.y)
     jump_puff(p)
+    star_pop(p)
+    assemble(p, Color(0.9, 0.5, 0.3))
     impact(p, Vector3.UP, false)
     impact(p, Vector3.UP, true)
     explosion(p, 2.0)
@@ -254,6 +265,73 @@ func impact(pos: Vector3, normal: Vector3, on_character: bool) -> void:
         _decal(pos, normal, 0.22, Color(0.12, 0.1, 0.09, 0.85))
 
 
+## The Microvolts signature: a killed toy bursts into plastic parts that bounce, settle and
+## fade. Pieces sit on collision layer 0 / mask WORLD, so they never push a toy and shots pass
+## straight through the pile. The piece count follows the quality preset.
+func fall_apart(c: Node3D, color: Color, crouched := false) -> void:
+    Game.trace("fall_apart")
+    var origin := c.global_position + Vector3(0, 0.55 if crouched else 0.8, 0)
+    var count: int = Quality.preset(Game.quality).get("fx_parts", 10)
+    var light_color := color.lightened(0.35)
+    for i in count:
+        var part := _acquire("part") as RigidBody3D
+        var dir := Vector3(randf_range(-1.0, 1.0), randf_range(0.1, 1.0), randf_range(-1.0, 1.0)).normalized()
+        part.freeze = true
+        part.global_transform = Transform3D(
+            Basis.from_euler(Vector3(randf() * TAU, randf() * TAU, randf() * TAU)),
+            origin + dir * 0.22)
+        var mesh := part.get_node("Mesh") as MeshInstance3D
+        mesh.mesh = _part_meshes[i % _part_meshes.size()]
+        mesh.material_override = _solid_mat(light_color if i % 3 == 0 else color)
+        mesh.transparency = 0.0
+        part.freeze = false
+        part.linear_velocity = dir * randf_range(2.6, 6.0) + Vector3(0, randf_range(1.6, 4.0), 0)
+        part.angular_velocity = Vector3(randf_range(-10, 10), randf_range(-10, 10), randf_range(-10, 10))
+        var tw := _tween(mesh)
+        tw.tween_interval(PART_LIFE - PART_FADE)
+        tw.tween_property(mesh, "transparency", 1.0, PART_FADE)
+        _release_after(part, "part", PART_LIFE)
+    puff(origin, Color(1.0, 1.0, 1.0, 0.28), 0.7, 0.45, 0.4)
+    Sfx.play("toy_break", origin)
+    Sfx.play("part_clatter", origin, -2.0, 0.2)
+
+
+## Respawn: a beam of light, a ring on the ground, and the toy pops back into existence.
+func assemble(pos: Vector3, color: Color) -> void:
+    Game.trace("assemble")
+    # a soft column of light: a stretched additive radial, not a box (a box reads as a slab)
+    var beam := _sprite(_radial, Color(color.lightened(0.55), 0.85), 1.3, true)
+    beam.global_position = pos + Vector3(0, 1.3, 0)
+    beam.scale = Vector3(0.55, 2.3, 1.0)
+    var bt := _tween(beam).set_parallel(true)
+    bt.tween_property(beam, "scale", Vector3(0.26, 2.9, 1.0), 0.4).set_ease(Tween.EASE_OUT)
+    bt.tween_property(beam, "modulate:a", 0.0, 0.4).set_delay(0.08)
+    _release_after(beam, "sprite", 0.45)
+    var ring := _sprite(_ring, Color(color.lightened(0.4), 0.9), 1.4, true)
+    ring.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+    ring.material_override.billboard_mode = BaseMaterial3D.BILLBOARD_DISABLED
+    ring.global_position = pos + Vector3(0, 0.08, 0)
+    ring.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
+    var rt := _tween(ring).set_parallel(true)
+    rt.tween_property(ring, "scale", Vector3(2.2, 2.2, 1.0), 0.4).set_ease(Tween.EASE_OUT)
+    rt.tween_property(ring, "modulate:a", 0.0, 0.4)
+    _release_after(ring, "sprite", 0.45)
+    jump_puff(pos + Vector3(0, 0.06, 0), 1.2)
+    Sfx.play("assemble", pos + Vector3(0, 0.8, 0))
+
+
+## Headshot / combo finisher: a four-point sparkle that pops and fades.
+func star_pop(pos: Vector3, color := Color(1.0, 0.95, 0.55), size := 0.85) -> void:
+    var s := _sprite(_star, color, size, true)
+    s.global_position = pos
+    s.scale = Vector3(0.4, 0.4, 0.4)
+    s.rotation.z = randf_range(-0.4, 0.4)
+    var tw := _tween(s).set_parallel(true)
+    tw.tween_property(s, "scale", Vector3(1.4, 1.4, 1.4), 0.28).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+    tw.tween_property(s, "modulate:a", 0.0, 0.3).set_delay(0.08)
+    _release_after(s, "sprite", 0.4)
+
+
 func explosion(pos: Vector3, radius: float) -> void:
     Game.trace("explosion")
     # fireball
@@ -356,6 +434,22 @@ func _make(kind: String) -> Node:
             mi.material_override = mat
             mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
             n = mi
+        "part":
+            var rb := RigidBody3D.new()
+            rb.collision_layer = 0                       # nothing collides WITH a piece...
+            rb.collision_mask = Character.LAYER_WORLD    # ...and a piece only hits the map
+            rb.mass = 0.16
+            rb.gravity_scale = 1.5
+            rb.physics_material_override = _part_phys
+            rb.freeze = true
+            var cs := CollisionShape3D.new()
+            cs.shape = _part_shape
+            rb.add_child(cs)
+            var pm := MeshInstance3D.new()
+            pm.name = "Mesh"
+            pm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+            rb.add_child(pm)
+            n = rb
         "mag":
             var mi := MeshInstance3D.new()
             mi.mesh = _mag_mesh
@@ -421,6 +515,8 @@ func _acquire(kind: String) -> Node:
         n = list.pop_back()
         _pool_stats.reused += 1
     _kill_tween(n)
+    if n is RigidBody3D:
+        _kill_tween(n.get_node("Mesh"))   # the fade lives on the child, not on the body
     if n is Node3D:
         n.visible = true
         n.scale = Vector3.ONE
@@ -443,6 +539,10 @@ func _release(n: Node, kind: String) -> void:
 func _hide(n: Node) -> void:
     if n is GPUParticles3D:
         n.emitting = false
+    if n is RigidBody3D:
+        n.freeze = true                   # park it: a loose body would keep simulating at y -100
+        n.linear_velocity = Vector3.ZERO
+        n.angular_velocity = Vector3.ZERO
     if n is Node3D:
         n.visible = false
         n.position = Vector3(0, -100, 0)
@@ -517,6 +617,42 @@ func _additive_mat(tex: Texture2D, color: Color) -> StandardMaterial3D:
     m.emission_energy_multiplier = 2.0
     _mats[key] = m
     return m
+
+
+## Flat solid, shared per colour (the toy palette is 9 colours, so the cache is bounded).
+func _solid_mat(color: Color) -> StandardMaterial3D:
+    var key := ["solid", color]
+    if _mats.has(key):
+        return _mats[key]
+    var m := StandardMaterial3D.new()
+    m.albedo_color = color
+    m.roughness = 0.75
+    m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    _mats[key] = m
+    return m
+
+
+func _build_part_meshes() -> void:
+    var box := BoxMesh.new()
+    box.size = Vector3(0.17, 0.17, 0.17)
+    var slab := BoxMesh.new()
+    slab.size = Vector3(0.26, 0.09, 0.17)
+    var cap := CapsuleMesh.new()
+    cap.radius = 0.075
+    cap.height = 0.3
+    cap.radial_segments = 8
+    cap.rings = 2
+    var coil := TorusMesh.new()          # the spring inside the toy
+    coil.inner_radius = 0.06
+    coil.outer_radius = 0.13
+    coil.rings = 10
+    coil.ring_segments = 5
+    _part_meshes = [box, cap, slab, box, coil, slab]
+    _part_shape = BoxShape3D.new()
+    _part_shape.size = Vector3(0.15, 0.15, 0.15)
+    _part_phys = PhysicsMaterial.new()
+    _part_phys.bounce = 0.42
+    _part_phys.friction = 0.7
 
 
 func _glow_mat(color: Color, energy: float) -> StandardMaterial3D:
@@ -616,6 +752,20 @@ func _smoke_tex() -> ImageTexture:
             var falloff := clampf(1.0 - smoothstep(0.35, 1.0, d), 0.0, 1.0)
             var n := 0.55 + 0.45 * noise.get_noise_2d(x, y)
             img.set_pixel(x, y, Color(1, 1, 1, clampf(falloff * n * 1.4, 0.0, 1.0)))
+    return ImageTexture.create_from_image(img)
+
+
+## Four-point sparkle (headshots, combo finishers): an astroid, soft at the tips.
+func _star_tex() -> ImageTexture:
+    var size := 64
+    var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+    for y in size:
+        for x in size:
+            var dx: float = absf((x + 0.5) / size - 0.5) * 2.0
+            var dy: float = absf((y + 0.5) / size - 0.5) * 2.0
+            var t := pow(dx, 0.42) + pow(dy, 0.42)
+            var a := clampf(1.45 - t, 0.0, 1.0)
+            img.set_pixel(x, y, Color(1, 1, 1, a * a))
     return ImageTexture.create_from_image(img)
 
 

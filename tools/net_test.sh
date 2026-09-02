@@ -69,6 +69,7 @@ check captures/net_client2.log "\[net\] spawned C[0-9]* (.*) (local)" "phase 2: 
 check captures/net_client2.log "\[net\] match ended: .* WINS"        "phase 2: client saw the match end"
 check captures/net_client2.log "\[net\] match restarted"             "phase 2: client saw the restart"
 check captures/net_client2.log "\[net\] respawn C"                   "phase 2: client saw respawns"
+check captures/net_client2.log "\[net\] fell apart C"                "phase 2: client plays the fall-apart"
 if grep -qE "SCRIPT ERROR|ERROR: .*rpc|Parse Error" captures/net_host2.log captures/net_client2.log; then
     grep -E "SCRIPT ERROR|ERROR: .*rpc|Parse Error" captures/net_host2.log captures/net_client2.log | head -5
     fail=1

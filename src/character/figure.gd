@@ -55,6 +55,8 @@ var grip: Node3D                ## weapon models go here; local -Z is the barrel
 var aim_modifier: AimModifier
 var mats: Array[ShaderMaterial] = []
 var hat: Node3D                 ## party hat, posed from the head bone every frame (party mode)
+var last_action := ""           ## the last upper-body one-shot, for tests and captures
+var last_body_action := ""      ## the last full-body beat
 var ready_ok := false
 var _head_idx := -1
 
@@ -121,6 +123,7 @@ func set_locomotion(local_vel: Vector2, on_floor: bool, delta: float) -> void:
     if aim_modifier:
         # creeping crouched: lean into the walk on top of the hips drop
         aim_modifier.move_lean = aim_modifier.crouch_target * minf(1.0, _loco.length()) * 0.12
+        aim_modifier.decay(delta)
 
 
 ## Upper-body pose for the weapon in hand. `slot` picks the stance flavour (5 = gatling: the
@@ -171,10 +174,26 @@ func play_action(key: String, duration: float) -> void:
     var anim_name: String = ACTIONS[key]
     if not anim_player.has_animation(anim_name):
         return
+    last_action = key
     var length := anim_player.get_animation(anim_name).length
     tree.set("parameters/actions/transition_request", key)
     tree.set("parameters/action_speed/scale", length / maxf(duration, 0.05))
     tree.set("parameters/shot/request", AnimationNodeOneShot.ONE_SHOT_REQUEST_FIRE)
+
+
+## Take a hit from `from_local` -- a unit vector in the toy's own space pointing at whoever
+## dealt it (-z is straight ahead). Picks the front or back flinch clip and kicks the chest away
+## from the source; `strength` 0..1 scales the procedural part so a rifle tap is a nudge and a
+## rocket is a whole-body jolt.
+func play_hit(from_local: Vector3, headshot: bool, strength: float) -> void:
+    if not ready_ok:
+        return
+    if strength > 0.55:
+        play_action("hit_back" if from_local.z > 0.0 else "hit", 0.32)
+    if aim_modifier:
+        aim_modifier.flinch = Vector2(-from_local.x, -from_local.z) * strength * 0.3
+        if headshot:
+            aim_modifier.head_jerk = -strength * 0.45
 
 
 ## Full-body beat (jump takeoff / landing / double jump). Same contract as play_action, but it
@@ -186,6 +205,7 @@ func play_body_action(key: String, duration: float) -> void:
     var anim_name: String = BODY_ACTIONS[key]
     if not anim_player.has_animation(anim_name):
         return
+    last_body_action = key
     var length := anim_player.get_animation(anim_name).length
     tree.set("parameters/body_actions/transition_request", key)
     tree.set("parameters/body_speed/scale", length / maxf(duration, 0.05))
