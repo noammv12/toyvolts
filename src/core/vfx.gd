@@ -170,6 +170,18 @@ func muzzle_flash(pos: Vector3, dir := Vector3.ZERO, size := 0.7) -> void:
     _release_after(core, "sprite", 0.07)
 
 
+## A soft smoke puff that grows, rises `rise` metres and fades over `seconds` (candles, pops).
+func puff(pos: Vector3, color: Color, size: float, rise: float, seconds: float) -> void:
+    var p := _sprite(_smoke, color, size, false)
+    p.global_position = pos
+    p.rotation.z = randf() * TAU
+    var tw := _tween(p).set_parallel(true)
+    tw.tween_property(p, "scale", Vector3.ONE * 2.6, seconds).set_ease(Tween.EASE_OUT)
+    tw.tween_property(p, "global_position", pos + Vector3(0, rise, 0), seconds)
+    tw.tween_property(p, "modulate:a", 0.0, seconds).set_delay(seconds * 0.2)
+    _release_after(p, "sprite", seconds + 0.1)
+
+
 ## Air-jump cue: a white ring puff under the feet.
 func jump_puff(pos: Vector3) -> void:
     var puff := _sprite(_smoke, Color(1.0, 1.0, 1.0, 0.7), 0.6, false)

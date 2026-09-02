@@ -41,6 +41,7 @@ var hand: BoneAttachment3D
 var grip: Node3D                ## weapon models go here; local -Z is the barrel direction
 var aim_modifier: AimModifier
 var mats: Array[ShaderMaterial] = []
+var hat: Node3D                 ## party hat on the head bone (party mode)
 var ready_ok := false
 
 var _loco := Vector2.ZERO
@@ -54,6 +55,7 @@ func setup(model_path: String, tint: Color = Color.WHITE, tint_mix := 0.0) -> vo
     if model != null:
         model.queue_free()
         model = null
+    hat = null
     mats.clear()
     var scene: PackedScene = _scene_cache.get(model_path)
     if scene == null:
@@ -150,6 +152,26 @@ func revive() -> void:
 
 func weapon_transform() -> Transform3D:
     return grip.global_transform if grip else global_transform
+
+
+## Party hat on the head bone (rebuilt by setup(): call again after changing the model).
+func add_hat(color: Color) -> Node3D:
+    if not ready_ok or skeleton == null:
+        return null
+    if hat != null and is_instance_valid(hat):
+        hat.queue_free()
+    var att := BoneAttachment3D.new()
+    att.name = "HatMount"
+    att.bone_name = "head"
+    skeleton.add_child(att)
+    hat = PartyHat.build(color)
+    # the head bone sits at the neck (0.92 m) and KayKit heads are huge (top ~2.1 m); the
+    # mount inherits the model + bone scale (~0.6), so local units are not metres
+    hat.scale = Vector3.ONE * 2.0
+    hat.position = Vector3(0, 1.42, 0.05)
+    hat.rotation = Vector3(deg_to_rad(-8.0), 0.0, deg_to_rad(12.0))
+    att.add_child(hat)
+    return hat
 
 
 # ---- setup ----------------------------------------------------------------------

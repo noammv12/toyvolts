@@ -4,7 +4,7 @@ extends Node
 ##   Sfx.play_ui("hit_marker")         non-positional (HUD / local player feedback)
 ##   Sfx.attach_loop("rocket_loop", node)  looping emitter that follows a node
 
-const DIRS := ["res://assets/sfx/", "res://assets/sfx/kenney/"]
+const DIRS := ["res://assets/sfx/", "res://assets/sfx/kenney/", "res://assets/sfx/party/"]
 const POOL_3D := 28
 const POOL_UI := 10
 
@@ -16,6 +16,10 @@ const GAIN := {   # per-sound dB trims
     "overheat": -8.0, "swap": -10.0, "hurt": -6.0, "footstep": -16.0, "ui_click": -10.0,
     "rocket_loop": -12.0, "gatling_spin": -12.0,
     "jump_a": -12.0, "jump_b": -12.0, "jump_c": -12.0, "land": -12.0, "weapon_change": -10.0,
+    # party
+    "balloon_pop": -4.0, "squeak": -8.0, "cheer": -6.0, "pinata_hit": -4.0, "pinata_burst": -2.0,
+    "gift_open": -6.0, "boing": -8.0, "coin": -10.0, "firework_launch": -8.0, "firework_burst": -3.0,
+    "candle_out": -8.0, "confetti_pop": -6.0, "party_horn": -6.0, "fanfare": -4.0,
 }
 
 var _streams := {}

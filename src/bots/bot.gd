@@ -28,6 +28,13 @@ var _strafe_t := 0.0
 var _stuck_t := 0.0
 var _favorite := 2
 var _nav_target := Vector3(INF, INF, INF)
+var party_guest := false     ## birthday room: dance, wander, cheer; never fight
+var _dance_left := 0.0
+var _dance_t := 0.0
+var _next_dance := 0.0
+var _cheer_t := 0.0
+var _cheer_until := 0.0
+var cheers := 0
 
 @onready var nav: NavigationAgent3D = $Nav
 
@@ -42,6 +49,10 @@ func _ready() -> void:
     _think = randf_range(0.3, 0.9)
     damaged.connect(_on_damaged)
     arsenal.fired.connect(_on_fired)
+    party_guest = Game.mode == "party"
+    if party_guest:
+        _next_dance = randf_range(2.0, 6.0)
+        arsenal.select.call_deferred(1)
 
 
 func _on_fired(d: WeaponData) -> void:
@@ -53,7 +64,12 @@ func _on_fired(d: WeaponData) -> void:
         _think = minf(_think, 0.12)
 
 
-func _on_damaged(_amount: float, source: Character, _headshot: bool) -> void:
+func _on_damaged(amount: float, source: Character, _headshot: bool) -> void:
+    if party_guest:
+        _dance_left = maxf(_dance_left, 3.0)   # a hit guest breaks into a dance
+        return
+    if amount <= 0.0:
+        return
     if source != null and source != self and source.alive and _is_enemy(source):
         if target == null or not target.alive or _last_seen > 1.0:
             target = source
@@ -62,7 +78,9 @@ func _on_damaged(_amount: float, source: Character, _headshot: bool) -> void:
 
 
 func _physics_process(delta: float) -> void:
-    if alive and Game.match_active:
+    if party_guest and alive:
+        _party_brain(delta)
+    elif alive and Game.match_active:
         _brain(delta)
     else:
         wish_dir = Vector3.ZERO
@@ -116,6 +134,50 @@ func _brain(delta: float) -> void:
         var s := arsenal.current()
         if s.uses_ammo() and s.clip < s.data.clip_size and s.reserve > 0 and not s.is_reloading():
             arsenal.reload()
+
+
+# ---- party guest ----------------------------------------------------------------
+## Wander the room, stop to dance (sway, hop, cheer) now and then, cheer nonstop in the finale.
+
+func _party_brain(delta: float) -> void:
+    arsenal.trigger = false
+    arsenal.alt = false
+    _dance_t += delta
+    _cheer_t -= delta
+    var now := Time.get_ticks_msec() / 1000.0
+    var finale := now < _cheer_until
+    if finale:
+        _dance_left = maxf(_dance_left, 0.5)
+    if _dance_left > 0.0:
+        _dance_left -= delta
+        var face := Vector3.ZERO - global_position   # the cake
+        face.y = 0.0
+        if face.length() > 0.5:
+            yaw = lerp_angle(yaw, atan2(-face.x, -face.z), minf(1.0, delta * 4.0))
+        var side := Vector3(-cos(yaw), 0, sin(yaw))
+        wish_dir = side * sin(_dance_t * 5.0) * 0.55
+        pitch = lerpf(pitch, 0.0, minf(1.0, delta * 4.0))
+        if is_on_floor() and randf() < delta * (2.2 if finale else 0.8):
+            jump_pressed = true
+        if _cheer_t <= 0.0:
+            _cheer_t = randf_range(0.9, 1.6) if finale else randf_range(1.4, 2.6)
+            figure.play_action("cheer", 1.0)
+            cheers += 1
+            if randf() < (0.6 if finale else 0.25):
+                Sfx.play("cheer", center(), -10.0, 0.3)
+        return
+    _next_dance -= delta
+    if _next_dance <= 0.0:
+        _next_dance = randf_range(6.0, 12.0)
+        _dance_left = randf_range(3.5, 6.5)
+        return
+    _wander(delta)
+
+
+## The finale: cheer for `seconds` (hop, sway, "Cheer" clip).
+func party_cheer(seconds: float) -> void:
+    _cheer_until = Time.get_ticks_msec() / 1000.0 + seconds
+    _dance_left = maxf(_dance_left, seconds)
 
 
 # ---- perception ---------------------------------------------------------------
@@ -316,7 +378,7 @@ func _move_to(p: Vector3, delta: float) -> void:
 
 func _wander(delta: float) -> void:
     _wander_left -= delta
-    if hp < 60.0:
+    if hp < 60.0 and not party_guest:
         var vial := _nearest_pickup(14.0)
         if vial != null:
             _move_to(vial.global_position, delta)

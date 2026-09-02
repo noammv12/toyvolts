@@ -72,5 +72,32 @@ if grep -qE "SCRIPT ERROR|ERROR: .*rpc|Parse Error" captures/net_host2.log captu
     grep -E "SCRIPT ERROR|ERROR: .*rpc|Parse Error" captures/net_host2.log captures/net_client2.log | head -5
     fail=1
 fi
+# ---- phase 3: Lalu's birthday room over the wire: the host blows a candle, pops a balloon,
+# opens a gift and bursts the pinata by itself (--party_smoke); the client must mirror every
+# prop, see the five guests and get its own toy in the party.
+PORT3=$((PORT + 2))
+timeout $((SECONDS_RUN + 40)) ./tools/godot.sh --headless --path . -- --host --port=$PORT3 --map=lalu_party --mode=party --bots=5     --difficulty=easy --party_smoke --quit_after=$SECONDS_RUN > captures/net_host3.log 2>&1 &
+host_pid=$!
+for i in $(seq 1 40); do
+    grep -q "\[net\] hosting" captures/net_host3.log 2>/dev/null && break
+    sleep 0.5
+done
+sleep 4
+timeout $((SECONDS_RUN + 40)) ./tools/godot.sh --headless --path . -- --join=127.0.0.1:$PORT3 --net_smoke     --quit_after=$((SECONDS_RUN - 6)) > captures/net_client3.log 2>&1 &
+client_pid=$!
+wait $client_pid
+wait $host_pid
+check captures/net_host3.log   "\[net\] match starting: lalu_party party" "phase 3: host started the party"
+check captures/net_client3.log "\[net\] spawned C[0-9]* (.*) (local)"    "phase 3: client spawned at the party"
+check captures/net_client3.log "\[net\] spawned C-5"                      "phase 3: client sees all five guests"
+check captures/net_client3.log "\[net\] party candle 0 -> 0"              "phase 3: client mirrors the candle"
+check captures/net_client3.log "\[net\] party balloon 0 -> 1"             "phase 3: client mirrors the balloon"
+check captures/net_client3.log "\[net\] party gift 2 -> 1"                "phase 3: client mirrors the gift"
+check captures/net_client3.log "\[net\] party pinata 0 -> 100"            "phase 3: client mirrors the pinata burst"
+check captures/net_host3.log   "\[party\] smoke done"                     "phase 3: host finished its checklist run"
+if grep -qE "SCRIPT ERROR|ERROR: .*rpc|Parse Error" captures/net_host3.log captures/net_client3.log; then
+    grep -E "SCRIPT ERROR|ERROR: .*rpc|Parse Error" captures/net_host3.log captures/net_client3.log | head -5
+    fail=1
+fi
 echo "net_test exit=$fail"
 exit $fail

@@ -15,6 +15,9 @@ signal respawned()
 const HEAD_SHAPE_INDEX := 1
 const LAYER_WORLD := 1
 const LAYER_CHARACTER := 2
+const LAYER_TARGET := 4      ## shootable props (balloons, pinata, ribbons): guns hit them, bodies walk through
+const PARTY_HOP := 7.0       ## party mode: a hit makes the toy hop and cheer instead of hurting it
+const AUTO_BOUNCE := 5.5     ## bouncy castle: landing inside bounces you again
 const SPAWN_PROTECTION := 2.0
 const DEATH_HIDE_DELAY := 1.1
 const JUMP_BUFFER := 0.15    ## seconds a mid-air jump press waits for a jump to become available
@@ -48,6 +51,12 @@ var controller: Object = null ## PlayerController / NetInput: feed(self, delta) 
 var puppet := false         ## client-side copy of a server-simulated toy (no simulation)
 var puppet_on_floor := true
 var predicted := false      ## client-side local toy: simulated here, reconciled with the server
+var zone_gravity_mult := 1.0   ## PartyZone effects while inside (moon corner, bouncy castle, slide)
+var zone_jump_mult := 1.0
+var zone_bounce := false
+var zone_push := Vector3.ZERO
+var _zones: Array = []
+var _fall_vy := 0.0          ## vertical speed just before the last move (bounce restitution)
 
 # controller inputs
 var yaw := 0.0
@@ -77,6 +86,8 @@ func _ready() -> void:
     spawn_home = global_position
     figure.setup(Skins.path(model_id), body_color, 0.35 if team != 0 else 0.0)
     _build_team_ring()
+    if Game.mode == "party":
+        figure.add_hat(PartyText.color(absi(net_id) + 1))
     health_changed.emit(hp, max_hp)
 
 
@@ -122,14 +133,26 @@ func _physics_process(delta: float) -> void:
 
     var wish := wish_dir * run_speed * arsenal.data().run_speed_mult * (0.9 if carrying != null else 1.0)
     var accel := ground_accel if is_on_floor() else air_accel
+    if zone_push != Vector3.ZERO:
+        accel = 6.0   # the slide is slippery: input barely steers, the push wins
     velocity.x = move_toward(velocity.x, wish.x, accel * delta)
     velocity.z = move_toward(velocity.z, wish.z, accel * delta)
+    if zone_push != Vector3.ZERO:
+        velocity += zone_push * delta
+        var flat := Vector2(velocity.x, velocity.z)
+        if flat.length() > 15.0:
+            flat = flat.normalized() * 15.0
+            velocity.x = flat.x
+            velocity.z = flat.y
 
     if is_on_floor():
         _jumps_used = 0
         _jump_buffer = 0.0
         if not _was_on_floor:
             Sfx.play("land", global_position, -2.0)
+            if zone_bounce and _fall_vy < -AUTO_BOUNCE:
+                velocity.y = -_fall_vy * 0.5   # the castle gives half the landing speed back
+                Sfx.play("boing", global_position, -6.0, 0.2)
         var speed := Vector2(velocity.x, velocity.z).length()
         if speed > 2.0:
             _step_t -= delta * speed / run_speed
@@ -139,7 +162,7 @@ func _physics_process(delta: float) -> void:
     else:
         if _was_on_floor and _jumps_used == 0:
             _jumps_used = 1  # walked off a ledge: no free ground jump
-        velocity.y -= gravity * delta
+        velocity.y -= gravity * zone_gravity_mult * delta
 
     # Microvolts wave-step: any weapon can jump once; melee out (even drawn mid-air) allows a second.
     # A press with no jump left is kept for JUMP_BUFFER seconds: pressing just before melee is
@@ -149,7 +172,7 @@ func _physics_process(delta: float) -> void:
         _jump_buffer = JUMP_BUFFER
     if (jump_pressed or _jump_buffer > 0.0) and _jumps_used < max_jumps():
         var second := _jumps_used > 0
-        velocity.y = jump_velocity * (0.92 if second else 1.0)
+        velocity.y = jump_velocity * zone_jump_mult * (0.92 if second else 1.0)
         _jumps_used += 1
         _jump_buffer = 0.0
         Sfx.play(Sfx.pick(["jump_a", "jump_b", "jump_c"]), global_position, 1.0 if second else 0.0)
@@ -158,6 +181,7 @@ func _physics_process(delta: float) -> void:
     jump_pressed = false
 
     _was_on_floor = is_on_floor()
+    _fall_vy = velocity.y
     move_and_slide()
     if predicted:
         Net.client_after_simulate(self)
@@ -228,6 +252,11 @@ func take_damage(amount: float, source: Character, _hit_pos: Vector3, impulse: V
         headshot: bool) -> Dictionary:
     if not alive or protection_left > 0.0 or amount <= 0.0 or not Game.match_active:
         return {"applied": false, "killed": false}
+    if Game.mode == "party":
+        # no PvP at the party: a hit is a hop and a cheer (replicated as a 0-damage event)
+        party_hit()
+        damaged.emit(0.0, source, headshot)
+        return {"applied": true, "killed": false}
     hp = maxf(0.0, hp - amount)
     velocity += impulse
     if source != null and source.arsenal != null:
@@ -250,6 +279,49 @@ func drop_battery() -> void:
         carrying.drop.call_deferred(global_position + Vector3(0, 0.1, 0))
 
 
+## Party mode: being shot makes a toy hop, squeak and cheer. Never hurts.
+func party_hit() -> void:
+    if not puppet and velocity.y < PARTY_HOP * 0.5:
+        velocity.y = PARTY_HOP
+    figure.play_action("cheer", 0.9)
+    _flash = 0.5
+    Sfx.play("squeak", center(), 0.0, 0.3)
+    if randf() < 0.35:
+        Sfx.play("cheer", center(), -9.0, 0.25)
+
+
+# ---- party zones (bouncy castle, moon corner, slide) ---------------------------------
+
+func enter_zone(zone: Node) -> void:
+    if not _zones.has(zone):
+        _zones.append(zone)
+    _apply_zones()
+
+
+func exit_zone(zone: Node) -> void:
+    _zones.erase(zone)
+    _apply_zones()
+
+
+func _apply_zones() -> void:
+    zone_gravity_mult = 1.0
+    zone_jump_mult = 1.0
+    zone_bounce = false
+    zone_push = Vector3.ZERO
+    for z in _zones:
+        if not is_instance_valid(z):
+            continue
+        match z.kind:
+            PartyZone.Kind.BOUNCE:
+                zone_jump_mult = maxf(zone_jump_mult, 2.0)
+                zone_bounce = true
+            PartyZone.Kind.MOON:
+                zone_gravity_mult = 0.3
+                zone_jump_mult = maxf(zone_jump_mult, 1.15)
+            PartyZone.Kind.SLIDE:
+                zone_push = z.push
+
+
 func heal(amount: float) -> void:
     if alive:
         hp = minf(max_hp, hp + amount)
@@ -269,6 +341,10 @@ func _die(killer: Character) -> void:
 ## Client: the server says this toy took damage (hp is the server's value after the hit).
 func damage_remote(amount: float, source: Character, headshot: bool, hp_after: float) -> void:
     if not alive:
+        return
+    if Game.mode == "party":
+        party_hit()
+        damaged.emit(0.0, source, headshot)
         return
     hp = hp_after
     _flash = 1.0

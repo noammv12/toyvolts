@@ -7,7 +7,7 @@ extends PanelContainer
 signal closed()
 
 const ACCENT := Color(0.95, 0.42, 0.2)
-const MODES := [["ffa", "Free For All"], ["tdm", "Team Deathmatch"], ["elim", "Elimination"], ["ctb", "Capture the Battery"]]
+const MODES := [["party", "Birthday Party"], ["ffa", "Free For All"], ["tdm", "Team Deathmatch"], ["elim", "Elimination"], ["ctb", "Capture the Battery"]]
 
 var _name_edit: LineEdit
 var _port_edit: LineEdit
@@ -273,7 +273,13 @@ func _push_identity() -> void:
 func _push_settings(map: String, mode: String, bots: int, difficulty: String) -> void:
     if not Net.is_server_role():
         return
-    Net.set_settings(map if map != "" else Net.settings.map, mode if mode != "" else Net.settings.mode,
+    var new_map := map if map != "" else String(Net.settings.map)
+    var new_mode := mode if mode != "" else String(Net.settings.mode)
+    if mode == "party":
+        new_map = "lalu_party"      # the party only happens in Lalu's room
+    elif map == "lalu_party" and Net.settings.mode != "party":
+        new_mode = "party"          # picking the room picks the party (any mode can be chosen after)
+    Net.set_settings(new_map, new_mode,
         clampi(bots if bots >= 0 else int(Net.settings.bots), 0, 7),
         difficulty if difficulty != "" else Net.settings.difficulty)
 

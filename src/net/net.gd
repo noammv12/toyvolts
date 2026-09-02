@@ -763,6 +763,20 @@ func _send_objects(to: int) -> void:
         var v: HealthVial = vials[vid]
         if is_instance_valid(v):
             rpc_id(to, "_ev_vial", vid, v.global_position)
+    var party := _party()
+    if party != null:
+        for args in party.remote_states():
+            rpc_id(to, "_ev_party", args[0], args[1], args[2], args[3], args[4])
+
+
+func _party() -> PartyManager:
+    return _arena.get_node_or_null("Party") as PartyManager if _arena != null and is_instance_valid(_arena) else null
+
+
+## Party props (candles, balloons, pinata, gifts, finale, reset) call this on the authority.
+func party_event(kind: String, index: int, state: int, who_id: int, pos: Vector3) -> void:
+    if is_server_role() and not multiplayer.get_peers().is_empty():
+        rpc("_ev_party", kind, index, state, who_id, pos)
 
 
 ## Objects call these on the authority; they are no-ops offline.
@@ -957,6 +971,13 @@ func _ev_vial(id: int, pos: Vector3) -> void:
     _arena.add_child(v)
     v.global_position = pos
     vials[id] = v
+
+
+@rpc("authority", "call_remote", "reliable")
+func _ev_party(kind: String, index: int, state: int, who_id: int, pos: Vector3) -> void:
+    var party := _party()
+    if party != null:
+        party.apply_remote(kind, index, state, _char(who_id), pos)
 
 
 @rpc("authority", "call_remote", "reliable")

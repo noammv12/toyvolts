@@ -27,6 +27,10 @@ var _smoke_shots := 0
 var _pitch_node: Node3D
 var _spring_arm: SpringArm3D
 var _nav: NavigationAgent3D   ## smoke mode only
+var _cine_cam: Camera3D       ## party finale: an orbiting camera takes over for a while
+var _cine_left := 0.0
+var _cine_t := 0.0
+var _cine_center := Vector3.ZERO
 
 
 ## Instance the controller scene under `c` (which must already be inside the tree).
@@ -117,7 +121,7 @@ func feed(c: Character, _delta: float) -> void:
         c.set_aim_ray(c.eye(), c.aim_dir())
         return
     if input_enabled:
-        if c.alive and Game.mouse_captured:
+        if c.alive and Game.mouse_captured and _cine_left <= 0.0:
             var input := Input.get_vector("move_left", "move_right", "move_forward", "move_back")
             c.wish_dir = (Basis(Vector3.UP, c.yaw) * Vector3(input.x, 0.0, input.y)).limit_length(1.0)
             if Input.is_action_just_pressed("jump"):
@@ -201,6 +205,43 @@ func _process(delta: float) -> void:
     # the sniper scope snaps (quickscope), the rifle zoom eases
     var zoom_rate := 30.0 if arsenal.data().scope_overlay else 14.0
     camera.fov = lerpf(camera.fov, target_fov, minf(1.0, delta * zoom_rate))
+    if _cine_left > 0.0:
+        _cine_left -= delta
+        _cine_t += delta
+        var a := _cine_t * 0.42
+        var r := 19.0 - 2.5 * sin(_cine_t * 0.3)   # inside the walls, clear of the mirror ball and the pinata
+        _cine_cam.global_position = Vector3(_cine_center.x + sin(a) * r, 9.0 + 1.0 * sin(_cine_t * 0.5), _cine_center.z + cos(a) * r)
+        _cine_cam.look_at(_cine_center + Vector3(0, 2.0, 0), Vector3.UP)
+        if _cine_left <= 0.0:
+            var fx := get_tree().get_first_node_in_group("post_fx")
+            if fx != null and fx.get_parent() == _cine_cam:
+                fx.reparent(camera, false)   # the outline quad goes back to the player camera
+            camera.current = true
+            _cine_cam.queue_free()
+            _cine_cam = null
+
+
+## Party finale: orbit the room centre for `seconds`, then hand the view back.
+func cinematic(center: Vector3, seconds: float) -> void:
+    _cine_center = center
+    _cine_left = seconds
+    _cine_t = 0.0
+    if _cine_cam == null:
+        _cine_cam = Camera3D.new()
+        _cine_cam.fov = 62.0
+        _cine_cam.near = 0.05
+        get_tree().current_scene.add_child(_cine_cam)
+        # the toon outline is a full-screen quad under the active camera: bring it along
+        var fx := get_tree().get_first_node_in_group("post_fx")
+        if fx != null:
+            fx.reparent(_cine_cam, false)
+            if Game.has_arg("no_postfx"):
+                fx.visible = false
+    _cine_cam.current = true
+
+
+func cinematic_active() -> bool:
+    return _cine_left > 0.0
 
 
 ## Rig pose from the current look, recoil, shake, bob and swap dip.
@@ -240,4 +281,7 @@ func _on_world_shake(pos: Vector3, strength: float) -> void:
 
 
 func _on_damaged(amount: float, _source: Character, _headshot: bool) -> void:
+    if amount <= 0.0:
+        add_trauma(0.12)   # party hop
+        return
     add_trauma(clampf(amount / 80.0, 0.15, 0.6))

@@ -43,7 +43,7 @@ func _ready() -> void:
         "ctb":
             score_limit = CTB_TO_WIN
         _:
-            score_limit = 0
+            score_limit = 0    # practice and the birthday party never end
     if Game.has_arg("score_limit"):   # debug / smoke tests: end the match quickly
         score_limit = int(Game.arg("score_limit"))
     time_left = time_limit
@@ -58,7 +58,7 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-    if not active or mode == "practice" or not round_active or Net.is_client():
+    if not active or mode == "practice" or mode == "party" or not round_active or Net.is_client():
         return
     time_left -= delta
     if time_left <= 0.0:
@@ -263,6 +263,9 @@ func status_line(viewer: Character) -> String:
             var leader_text := "1st %s %d" % [lead[0].display_name, lead[0].rounds_won] if not lead.is_empty() else ""
             return "ELIMINATION  round %d   |   You %d   |   %s   |   alive %d   |   %s" % [
                 round_number, viewer.rounds_won, leader_text, alive_count(), clock]
+        "party":
+            var party := get_tree().get_first_node_in_group("party")
+            return party.status_line() if party != null else "PARTY"
         _:
             return "Practice   |   %d kills" % viewer.kills
 

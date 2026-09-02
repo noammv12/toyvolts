@@ -146,6 +146,9 @@ func _capture(path: String, frames_spec: String) -> void:
         var who := Game.local_player()
         if who != null and who.controller != null:
             print("[capture] player at %s  camera at %s" % [who.global_position, who.controller.camera.global_position])
+        var cam := get_viewport().get_camera_3d()
+        if cam != null:
+            print("[capture] active camera %s at %s looking %s" % [cam.name, cam.global_position, -cam.global_transform.basis.z])
         var img := get_viewport().get_texture().get_image()
         var abs_path := ProjectSettings.globalize_path(path)
         if targets.size() > 1:

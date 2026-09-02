@@ -63,7 +63,7 @@ func _populate() -> void:
     if Net.has_local_human():
         spawn_human(1, 1, Game.player_name, Game.skin, team, p, atan2(p.x, p.z), true)
     match Game.mode:
-        "ffa", "elim":
+        "ffa", "elim", "party":
             _spawn_bots(Game.bot_count, false)
         "tdm", "ctb":
             _spawn_bots(Game.bot_count, true)
@@ -162,6 +162,9 @@ func _spawn_bots(count: int, teams: bool) -> void:
         else:
             b.team = 0
             b.body_color = FFA_COLORS[i % FFA_COLORS.size()]
+        if Game.mode == "party":   # party guests: pastel toys with party names
+            b.display_name = PartyText.GUESTS[i % PartyText.GUESTS.size()]
+            b.body_color = PartyText.color(i)
         var p := spawns[(i + 1) % spawns.size()]
         if teams and Game.mode == "ctb" and base_positions.has(b.team):
             p = _side_spawn(b.team, i)

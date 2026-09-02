@@ -3,7 +3,7 @@ extends Node3D
 ## Rocket / grenade. Moves kinematically with a per-tick raycast (no tunnelling),
 ## explodes on contact (rocket) or bounces until the fuse runs out (grenade).
 
-const MASK := Character.LAYER_WORLD | Character.LAYER_CHARACTER
+const MASK := Character.LAYER_WORLD | Character.LAYER_CHARACTER | Character.LAYER_TARGET
 const MAX_LIFE := 12.0
 const TOON: Shader = preload("res://shaders/toon.gdshader")
 
@@ -54,7 +54,10 @@ func _physics_process(delta: float) -> void:
     var hit := get_world_3d().direct_space_state.intersect_ray(query)
     if hit:
         var target := hit.collider as Character
-        if data.fuse_time <= 0.0 or (target != null and data.detonate_on_character):
+        var prop := Arsenal.shootable_of(hit.collider)
+        if data.fuse_time <= 0.0 or (target != null and data.detonate_on_character) or prop != null:
+            if prop != null and not cosmetic:
+                prop.on_shot(shooter if is_instance_valid(shooter) else null, hit.position, velocity.normalized(), data)
             _explode(hit.position, hit.normal, target)
             return
         var n: Vector3 = hit.normal

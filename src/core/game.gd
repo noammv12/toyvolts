@@ -7,6 +7,8 @@ signal settings_changed()
 
 const MENU_SCENE := "res://src/ui/main_menu.tscn"
 const MAPS := {
+    "lalu_party": {"name": "Lalu's Birthday", "scene": "res://src/world/lalu_party.tscn",
+        "blurb": "Hila's party room: a giant cake with 12 candles, 30 balloons, a pinata, five gifts, a bouncy castle, a moon corner and a slide."},
     "toy_room": {"name": "Toy Room", "scene": "res://src/world/toy_room.tscn",
         "blurb": "A kid's bedroom at toy scale: rug arena, bed ramp, dining table high ground."},
     "diner": {"name": "Diner", "scene": "res://src/world/diner.tscn",
@@ -19,7 +21,7 @@ const PROBE_FPS_FLOOR := 50.0        ## auto mode drops one preset when the firs
 var mouse_captured := false
 var mouse_sensitivity := 0.0022
 var headless := false
-var mode := "practice"      ## practice | ffa | tdm | elim
+var mode := "practice"      ## practice | ffa | tdm | elim | ctb | party
 var bot_count := 5
 var bot_difficulty := "normal"   ## easy | normal | hard (Bot.SKILL_RANGES)
 var map := "toy_room"            ## MAPS key
@@ -345,8 +347,18 @@ func probe_quality() -> void:
 func start_match(new_mode: String, bots: int) -> void:
     mode = new_mode
     bot_count = bots
+    if mode == "party" and map != "lalu_party":
+        map = "lalu_party"   # the party only happens in Lalu's room
     get_tree().paused = false
     get_tree().change_scene_to_file.call_deferred(map_scene())
+
+
+## Lalu's birthday room: the title-screen button and the lobby preset.
+func start_party() -> void:
+    map = "lalu_party"
+    bot_difficulty = "easy"
+    save_settings()
+    start_match("party", 5)
 
 
 func map_scene() -> String:

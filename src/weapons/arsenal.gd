@@ -11,7 +11,7 @@ signal hit_confirmed(killed: bool, headshot: bool)
 signal melee_swung(heavy: bool)
 signal reload_started()
 
-const MASK_HIT := Character.LAYER_WORLD | Character.LAYER_CHARACTER
+const MASK_HIT := Character.LAYER_WORLD | Character.LAYER_CHARACTER | Character.LAYER_TARGET
 const SHOT_SOUND := {2: "rifle_shot", 3: "shotgun_shot", 4: "sniper_shot", 5: "gatling_shot",
     6: "bazooka_launch", 7: "grenade_launch"}
 const FLASH_SIZE := {2: 0.7, 3: 1.1, 4: 0.9, 5: 0.6, 6: 1.3, 7: 0.8}
@@ -83,6 +83,19 @@ func select(new_slot: int) -> void:
     _show_model(slot)
     Sfx.play("weapon_change", character.center(), -4.0)
     weapon_changed.emit(slot, data())
+
+
+## World props that react to hits live in the "shootable" group (on the collider or one of
+## its parents) and implement on_shot(by, pos, dir, weapon).
+static func shootable_of(collider: Object) -> Node:
+    var n := collider as Node
+    var depth := 0
+    while n != null and depth < 4:
+        if n.is_in_group("shootable") and n.has_method("on_shot"):
+            return n
+        n = n.get_parent()
+        depth += 1
+    return null
 
 
 func select_previous() -> void:
@@ -320,6 +333,11 @@ func _fire_hitscan(d: WeaponData) -> void:
                 var result := target.take_damage(dmg, character, hit.position, dir * d.knockback / d.pellets, head)
                 if result.applied:
                     hit_confirmed.emit(result.killed, head)
+            elif target == null and not cosmetic:
+                var prop := shootable_of(hit.collider)
+                if prop != null:
+                    prop.on_shot(character, hit.position, dir, d)
+                    hit_confirmed.emit(false, false)
             Vfx.impact(hit.position, hit.normal, target != null)
         Vfx.tracer(muzzle, end, Color(1.0, 0.85, 0.45) if slot != 4 else Color(0.6, 0.9, 1.0))
     var m := current_model()
@@ -377,6 +395,18 @@ func _melee(s: WeaponState, dmg: float, interval: float, heavy: bool) -> void:
             hit_confirmed.emit(result.killed, false)
             Vfx.impact(other.center() - forward * 0.3, -forward, true)
             Sfx.play("melee_hit", other.center())
+    if not cosmetic:
+        for node in character.get_tree().get_nodes_in_group("shootable"):
+            var prop := node as Node3D
+            if prop == null or not prop.has_method("on_shot"):
+                continue
+            var to: Vector3 = prop.global_position - origin
+            var dist := to.length()
+            if dist > d.melee_range + 1.0 or (dist > 0.01 and rad_to_deg(forward.angle_to(to)) > d.melee_arc_deg):
+                continue
+            prop.on_shot(character, prop.global_position, forward, d)
+            hit_confirmed.emit(false, false)
+            Sfx.play("melee_hit", prop.global_position, -4.0)
     _swing_model(heavy)
     var f := _figure()
     if f:

@@ -5,9 +5,19 @@ seven weapons (melee, rifle, shotgun, sniper, gatling, bazooka, grenade launcher
 
 ## Play
 
-Double-click `PLAY.bat` (or `tools/godot.sh --path .`). Pick a mode (Free For All, Team
-Deathmatch, Elimination, Capture the Battery, Practice), a map (Toy Room, Diner) and the bot
-difficulty (Easy / Normal / Hard) from the menu. Releases: `build/ToyVolts-win64.zip`.
+Double-click `PLAY.bat` (or `tools/godot.sh --path .`). Pick a mode (Birthday Party, Free For
+All, Team Deathmatch, Elimination, Capture the Battery, Practice), a map (Lalu's Birthday, Toy
+Room, Diner) and the bot difficulty (Easy / Normal / Hard) from the menu. Releases:
+`build/ToyVolts-win64.zip`.
+
+**LALU'S BIRTHDAY** (the big pink button, v0.7): Hila's party room. Blow out the 12 candles on
+the cake (shoot them), pop the 30 balloons, hit the pinata 10 times (candy + capsules), shoot
+the bows on the five gifts (spring toy, jack-in-the-box, coin rain, a puppy that follows you,
+fireworks). Bouncy castle = double jumps and bouncy landings, moon corner = low gravity, a
+slide from the table, a disco floor, confetti cannons. No PvP: shooting a guest (or Noam and
+Daniel online) makes them hop and cheer. Complete the checklist for the finale (confetti
+storm, fireworks, orbiting camera, the card), then it resets. Hostable from the lobby
+(mode Birthday Party); every prop is mirrored to the guests.
 
 Capture the Battery: red vs blue, grab one of the three batteries (yellow beam), run it to
 your team's CHARGE pad; first to 5. Carriers run 10 % slower and drop the cell when they die.
@@ -66,9 +76,10 @@ times and quits), `--host` / `--join=ip:port` / `--server` with `--port=N` (onli
 ## Develop
 
 - `tools/import.sh` after adding scripts with `class_name` or new assets
-- `tools/test.sh` headless tests (125 checks: weapons, packets, interpolation, the wave-step at 60 Hz, modes, maps)
-- `tools/net_test.sh` two-process loopback smoke: headless host + client, handshake, spawns, a confirmed hit, a whole short match
-- `tools/shot.sh <name> [--mode=ffa|tdm|elim|practice] [--bots=N] [--map=diner] [--quality=low] [--frames=N] [--pos=x,y,z] [--yaw=deg] [--pitch=deg] [--ui=pause|settings]` renders one frame to `captures/`
+- `tools/test.sh` headless tests (155 checks: weapons, packets, interpolation, the wave-step at 60 Hz, modes, maps, the party room)
+- `tools/net_test.sh` two-process loopback smoke: headless host + client, handshake, spawns, a confirmed hit, a whole short match, the party room mirrored
+- `tools/shot.sh <name> [--mode=ffa|tdm|elim|ctb|party|practice] [--bots=N] [--map=diner|lalu_party] [--quality=low] [--frames=N] [--pos=x,y,z] [--yaw=deg] [--pitch=deg] [--orbit=deg] [--ui=pause|settings|lobby] [--party_finish]` renders one frame (or a comma list of frames) to `captures/`
+- `tools/synth_sfx.py` / `tools/synth_party.py` regenerate the procedural sounds (party: pops, squeaks, cheers, fireworks, the Happy Birthday chiptune loop)
 - `tools/bench.sh [low medium high]` frame-time table per preset; `GODOT_ARGS="--gpu-index 1"` to pick the iGPU
 - `tools/export.sh` builds `build/ToyVolts-win64.zip`
 - Design, weapon tuning table and milestones: `design/plan.md`; performance notes: `design/plans/next-session-perf.md`;

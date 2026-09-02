@@ -34,4 +34,19 @@ static func splash(tree: SceneTree, center: Vector3, radius: float, damage: floa
             hits += 1
             if source != null and c != source and source.arsenal:
                 source.arsenal.hit_confirmed.emit(result.killed, false)
+    # party props (candles, balloons, the pinata, gift ribbons) feel the blast too
+    for node in tree.get_nodes_in_group("shootable"):
+        var prop := node as Node3D
+        if prop == null or not prop.has_method("on_shot"):
+            continue
+        var to: Vector3 = prop.global_position - center
+        var dist := to.length()
+        if dist > radius + 0.6:
+            continue
+        var los := PhysicsRayQueryParameters3D.create(center, prop.global_position, Character.LAYER_WORLD)
+        var block := space.intersect_ray(los)
+        if block and Arsenal.shootable_of(block.collider) != prop:
+            continue
+        prop.on_shot(source, prop.global_position, to.normalized() if dist > 0.01 else Vector3.UP, null)
+        hits += 1
     return hits

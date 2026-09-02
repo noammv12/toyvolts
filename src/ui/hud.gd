@@ -9,8 +9,12 @@ const SLOT_H := 52.0
 
 var _player: Character
 var _match: MatchController
+var _party: PartyManager
 var _overlay: Overlay
 var _radar: Radar
+var _checklist: PartyChecklist
+var _card: PanelContainer
+var _card_tween: Tween
 var _damage_flash: ColorRect
 var _kill_flash: ColorRect
 var _hp_bar: HpBar
@@ -47,6 +51,8 @@ class Overlay extends Control:
     func _draw() -> void:
         if player == null or not player.alive:
             return
+        if player.controller != null and player.controller.has_method("cinematic_active") and player.controller.cinematic_active():
+            return   # party finale: the orbit camera shows the room, no crosshair
         var c := size * 0.5
         var d := player.arsenal.data()
         var s := player.arsenal.current()
@@ -288,6 +294,44 @@ class Radar extends Control:
         return c + flat.rotated(player.yaw) / RANGE_M * R
 
 
+class PartyChecklist extends Control:
+    var party: PartyManager
+
+    func _process(_d: float) -> void:
+        queue_redraw()
+
+    func _draw() -> void:
+        if party == null or not is_instance_valid(party):
+            return
+        var c := party.counts()
+        var font := ThemeDB.fallback_font
+        var w := 262.0
+        var h := 150.0
+        draw_rect(Rect2(Vector2.ZERO, Vector2(w, h)), Color(0.08, 0.05, 0.1, 0.62))
+        draw_rect(Rect2(Vector2.ZERO, Vector2(w, h)), PartyText.PINK, false, 2.0)
+        draw_string(font, Vector2(12, 24), "LALU'S PARTY", HORIZONTAL_ALIGNMENT_LEFT, -1, 17, PartyText.GOLD)
+        if c.done:
+            draw_string(font, Vector2(w - 92, 24), "COMPLETE!", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, PartyText.MINT)
+        var rows := [
+            ["Candles", c.candles, c.candles_total, PartyText.GOLD],
+            ["Balloons", c.balloons, c.balloons_total, PartyText.PINK],
+            ["Pinata", c.pinata_total if c.pinata else c.pinata_hits, c.pinata_total, PartyText.LILAC],
+            ["Gifts", c.gifts, c.gifts_total, PartyText.TEAL],
+        ]
+        for i in rows.size():
+            var r: Array = rows[i]
+            var y := 44.0 + i * 27.0
+            var done: bool = int(r[1]) >= int(r[2])
+            draw_string(font, Vector2(12, y + 12), r[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(1, 1, 1, 0.9))
+            var bx := 96.0
+            var bw := 108.0
+            draw_rect(Rect2(Vector2(bx, y + 1), Vector2(bw, 14)), Color(0, 0, 0, 0.5))
+            var t := clampf(float(r[1]) / maxf(float(r[2]), 1.0), 0.0, 1.0)
+            draw_rect(Rect2(Vector2(bx + 1, y + 2), Vector2((bw - 2) * t, 12)), r[3])
+            var text := "%d/%d" % [r[1], r[2]] if not done else "done"
+            draw_string(font, Vector2(bx + bw + 8, y + 12), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, PartyText.MINT if done else Color(1, 1, 1, 0.85))
+
+
 # ---- lifecycle -----------------------------------------------------------------
 
 func _ready() -> void:
@@ -346,6 +390,14 @@ func _process(delta: float) -> void:
         _bind_player(Game.local_player())
         if _player == null:
             return
+    if _party == null:
+        _party = get_tree().get_first_node_in_group("party") as PartyManager
+        if _party != null:
+            _checklist.party = _party
+            _party.finale_started.connect(_on_party_finale)
+    var party_mode := Game.mode == "party" and _party != null
+    _radar.visible = not party_mode
+    _checklist.visible = party_mode
     var now := Time.get_ticks_msec() / 1000.0
     var s := _player.arsenal.current()
     var d := s.data
@@ -389,7 +441,7 @@ func _process(delta: float) -> void:
         _center_label.text = ""
 
     var show_scores := Input.is_action_pressed("scoreboard") or _banner_until > now
-    _scoreboard.visible = show_scores and _match != null and _match.mode != "practice"
+    _scoreboard.visible = show_scores and _match != null and _match.mode != "practice" and _match.mode != "party"
     if _scoreboard.visible:
         _refresh_scoreboard()
 
@@ -416,6 +468,13 @@ func _build() -> void:
     _radar.size = Vector2(150, 150)
     _radar.mouse_filter = Control.MOUSE_FILTER_IGNORE
     add_child(_radar)
+    _checklist = PartyChecklist.new()
+    _checklist.position = Vector2(20, 20)
+    _checklist.size = Vector2(262, 150)
+    _checklist.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    _checklist.visible = false
+    add_child(_checklist)
+    _build_card()
 
     _hp_bar = HpBar.new()
     _hp_bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT, Control.PRESET_MODE_MINSIZE, 24)
@@ -564,7 +623,60 @@ func _on_hit(killed: bool, headshot: bool) -> void:
             _popup("HEADSHOT", Color(1, 0.85, 0.3))
 
 
+## The birthday card that flies in at the finale.
+func _build_card() -> void:
+    _card = PanelContainer.new()
+    var style := StyleBoxFlat.new()
+    style.bg_color = PartyText.HOT_PINK
+    style.border_color = PartyText.GOLD
+    style.set_border_width_all(5)
+    style.set_corner_radius_all(22)
+    style.set_content_margin_all(34)
+    _card.add_theme_stylebox_override("panel", style)
+    _card.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+    _card.grow_horizontal = Control.GROW_DIRECTION_BOTH
+    _card.grow_vertical = Control.GROW_DIRECTION_BOTH
+    _card.visible = false
+    _card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    add_child(_card)
+    var box := VBoxContainer.new()
+    box.add_theme_constant_override("separation", 10)
+    _card.add_child(box)
+    for spec in [[PartyText.CARD_TITLE, 56, PartyText.CREAM], [PartyText.CARD_SUB, 32, PartyText.GOLD], [PartyText.CARD_AGAIN, 16, PartyText.CREAM]]:
+        var l := Label.new()
+        l.text = spec[0]
+        l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+        l.add_theme_font_size_override("font_size", spec[1])
+        l.add_theme_color_override("font_color", spec[2])
+        l.add_theme_color_override("font_outline_color", Color(0.45, 0.08, 0.25))
+        l.add_theme_constant_override("outline_size", 6 if spec[1] > 20 else 3)
+        box.add_child(l)
+
+
+func _on_party_finale() -> void:
+    _popup("THE PARTY IS COMPLETE!", PartyText.GOLD)
+    _popup_until = Time.get_ticks_msec() / 1000.0 + 2.0
+    if _card_tween != null and _card_tween.is_valid():
+        _card_tween.kill()
+    _card.visible = true
+    _card.pivot_offset = _card.size * 0.5
+    _card.scale = Vector2(0.2, 0.2)
+    _card.rotation = deg_to_rad(-25.0)
+    _card.modulate.a = 0.0
+    _card_tween = create_tween()
+    _card_tween.set_parallel(true)
+    _card_tween.tween_property(_card, "scale", Vector2.ONE, 0.9).set_delay(2.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+    _card_tween.tween_property(_card, "rotation", deg_to_rad(-3.0), 0.9).set_delay(2.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+    _card_tween.tween_property(_card, "modulate:a", 1.0, 0.4).set_delay(2.2)
+    var hold := maxf(_party.finale_seconds - 4.5, 3.0)
+    _card_tween.chain().tween_property(_card, "modulate:a", 0.0, 0.6).set_delay(hold)
+    _card_tween.parallel().tween_property(_card, "scale", Vector2(1.3, 1.3), 0.6).set_delay(hold)
+    _card_tween.chain().tween_callback(func() -> void: _card.visible = false)
+
+
 func _on_damaged(amount: float, source: Character, _headshot: bool) -> void:
+    if amount <= 0.0:
+        return   # party hop: no red flash
     _damage_flash.color.a = clampf(amount / 60.0, 0.15, 0.5)
     var tw := _damage_flash.create_tween()
     tw.tween_property(_damage_flash, "color:a", 0.0, 0.35)

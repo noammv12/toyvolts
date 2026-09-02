@@ -4,6 +4,7 @@ extends Control
 
 const ACCENT := Color(0.95, 0.42, 0.2)
 const MODES := [
+    ["party", "Birthday Party", "Lalu's room: blow out the candles, pop the balloons, break the pinata, open the gifts. Guests only cheer."],
     ["ffa", "Free For All", "Every toy for itself. First to 20."],
     ["tdm", "Team Deathmatch", "Red vs Blue. First team to 30."],
     ["elim", "Elimination", "No respawns. Last toy standing wins the round; 5 rounds."],
@@ -75,6 +76,8 @@ func _build() -> void:
     bg.color = Color(0.11, 0.13, 0.18)
     bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     add_child(bg)
+    if not Game.headless:
+        add_child(_confetti())
 
     var root := HBoxContainer.new()
     root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -102,6 +105,40 @@ func _build() -> void:
     sub.add_theme_font_size_override("font_size", 17)
     sub.modulate = Color(1, 1, 1, 0.7)
     left.add_child(sub)
+    left.add_child(_spacer(8))
+
+    # ---- the birthday button: first thing on the screen, cake coloured
+    var party_btn := Button.new()
+    party_btn.text = PartyText.MENU_BUTTON
+    party_btn.custom_minimum_size = Vector2(330, 62)
+    party_btn.add_theme_font_size_override("font_size", 30)
+    party_btn.add_theme_color_override("font_color", PartyText.GOLD)
+    party_btn.add_theme_color_override("font_hover_color", PartyText.CREAM)
+    party_btn.add_theme_color_override("font_pressed_color", PartyText.CREAM)
+    party_btn.add_theme_color_override("font_outline_color", Color(0.45, 0.08, 0.25))
+    party_btn.add_theme_constant_override("outline_size", 4)
+    var cake := StyleBoxFlat.new()
+    cake.bg_color = PartyText.HOT_PINK
+    cake.border_color = PartyText.TEAL
+    cake.set_border_width_all(3)
+    cake.set_corner_radius_all(14)
+    cake.set_content_margin_all(6)
+    party_btn.add_theme_stylebox_override("normal", cake)
+    var cake_hover := cake.duplicate() as StyleBoxFlat
+    cake_hover.bg_color = PartyText.PINK
+    cake_hover.border_color = PartyText.GOLD
+    party_btn.add_theme_stylebox_override("hover", cake_hover)
+    party_btn.add_theme_stylebox_override("pressed", cake_hover)
+    party_btn.add_theme_stylebox_override("focus", cake_hover)
+    party_btn.pressed.connect(func() -> void:
+        Sfx.play_ui("party_horn", -6.0)
+        Game.start_party())
+    left.add_child(party_btn)
+    var party_sub := Label.new()
+    party_sub.text = PartyText.MENU_SUB
+    party_sub.add_theme_font_size_override("font_size", 14)
+    party_sub.modulate = PartyText.PINK
+    left.add_child(party_sub)
     left.add_child(_spacer(6))
 
     var mode_title := Label.new()
@@ -140,8 +177,8 @@ func _build() -> void:
         var b := Button.new()
         b.text = Game.MAPS[key].name
         b.toggle_mode = true
-        b.custom_minimum_size = Vector2(160, 40)
-        b.add_theme_font_size_override("font_size", 18)
+        b.custom_minimum_size = Vector2(104, 40)
+        b.add_theme_font_size_override("font_size", 16)
         b.pressed.connect(func() -> void:
             Sfx.play_ui("ui_click")
             _set_map(key))
@@ -363,6 +400,8 @@ func _set_mode(mode: String) -> void:
     for m in MODES:
         if m[0] == mode:
             _blurb.text = m[2]
+    if mode == "party" and Game.map != "lalu_party" and not _map_buttons.is_empty():
+        _set_map("lalu_party")   # the party only happens in Lalu's room
 
 
 func _set_bots(n: int) -> void:
@@ -377,6 +416,8 @@ func _set_map(key: String) -> void:
     for k in _map_buttons:
         _map_buttons[k].button_pressed = k == key
     _map_blurb.text = Game.MAPS[key].blurb
+    if key == "lalu_party" and _mode != "party":
+        _set_mode("party")       # picking the room picks the party (any mode can still be chosen after)
 
 
 func _set_difficulty(level: String) -> void:
@@ -404,6 +445,50 @@ func _set_skin(id: String) -> void:
     if _preview_figure:
         _preview_figure.setup(Skins.path(id))
         _preview_figure.set_aiming(false)
+        _preview_figure.add_hat(PartyText.HOT_PINK)
+
+
+## Paper confetti drifting down over the whole title screen.
+func _confetti() -> GPUParticles2D:
+    var p := GPUParticles2D.new()
+    p.amount = 110
+    p.lifetime = 11.0
+    p.preprocess = 8.0
+    p.position = Vector2(800, -30)
+    var img := Image.create(10, 7, false, Image.FORMAT_RGBA8)
+    img.fill(Color.WHITE)
+    p.texture = ImageTexture.create_from_image(img)
+    var pm := ParticleProcessMaterial.new()
+    pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+    pm.emission_box_extents = Vector3(900, 4, 1)
+    pm.direction = Vector3(0, 1, 0)
+    pm.spread = 25.0
+    pm.initial_velocity_min = 25.0
+    pm.initial_velocity_max = 60.0
+    pm.gravity = Vector3(0, 28, 0)
+    pm.damping_min = 4.0
+    pm.damping_max = 9.0
+    pm.angle_min = 0.0
+    pm.angle_max = 360.0
+    pm.angular_velocity_min = -160.0
+    pm.angular_velocity_max = 160.0
+    pm.scale_min = 0.8
+    pm.scale_max = 1.6
+    var g := Gradient.new()
+    g.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
+    var colors := PackedColorArray()
+    var offsets := PackedFloat32Array()
+    for i in PartyText.PALETTE.size():
+        colors.append(PartyText.PALETTE[i])
+        offsets.append(float(i) / PartyText.PALETTE.size())
+    g.colors = colors
+    g.offsets = offsets
+    var ramp := GradientTexture1D.new()
+    ramp.gradient = g
+    pm.color_initial_ramp = ramp
+    p.process_material = pm
+    p.emitting = true
+    return p
 
 
 func _spacer(h: float) -> Control:

@@ -22,6 +22,7 @@ func _ready() -> void:
     await _test_elimination()
     await _test_toy_room()
     await _test_ctb()
+    await _test_party()
     print("\n%d checks, %d failed" % [_count, _fails])
     get_tree().quit(1 if _fails > 0 else 0)
 
@@ -604,6 +605,7 @@ func _test_map(key: String, path: String) -> void:
         and room.battery_spawns.size() >= 1 and room.capsule_spawns.size() >= 4)
     var player: Character = room.local_player()
     player.controller.input_enabled = false
+    Game.match_active = false        # bots must not shoot the player into a respawn mid-test
     for i in 90:
         await get_tree().physics_frame
     _check("%s: player stands on the floor" % key, player.is_on_floor() and player.global_position.y > -0.5)
@@ -616,6 +618,7 @@ func _test_map(key: String, path: String) -> void:
         spots.append(room.base_positions[t])
     for c in room.capsule_spawns:
         spots.append(c[0])
+    player.collision_mask = Character.LAYER_WORLD   # a wandering bot on the spot must not launch us
     for p in spots:
         player.velocity = Vector3.ZERO
         player.global_position = p
@@ -625,6 +628,8 @@ func _test_map(key: String, path: String) -> void:
         moved.y = maxf(0.0, moved.y)   # settling down onto a top is fine
         if moved.length() > 0.8:
             bad.append("%s->%s" % [p, player.global_position])
+    player.collision_mask = Character.LAYER_WORLD | Character.LAYER_CHARACTER
+    Game.match_active = true
     _check("%s: %d spots are clear (%s)" % [key, spots.size(), ", ".join(bad) if not bad.is_empty() else "ok"], bad.is_empty())
     var bots := get_tree().get_nodes_in_group("bots")
     var grounded := 0
@@ -712,6 +717,169 @@ func _test_ctb() -> void:
     for i in 4:
         await get_tree().physics_frame
     _check("capsule: ammo tops up the rifle reserve (%d)" % player.arsenal.states[1].reserve, player.arsenal.states[1].reserve == 51 and not ammo_cap.is_available())
+    room.queue_free()
+    await get_tree().process_frame
+
+
+# ---- Lalu's birthday room: props, guests, zones, finale + reset, network mirror -----------
+
+func _test_party() -> void:
+    Game.mode = "party"
+    Game.bot_count = 5
+    var room: Node3D = (load("res://src/world/lalu_party.tscn") as PackedScene).instantiate()
+    add_child(room)
+    await get_tree().process_frame
+    var party := room.get_node("Party") as PartyManager
+    var player: Character = room.local_player()
+    player.controller.input_enabled = false
+    _check("party: 12 candles, 30 balloons, 5 gifts, a pinata, 4 cannons", party.candles.size() == 12
+        and party.balloons.size() == 30 and party.gifts.size() == 5 and party.pinata != null and party.cannons.size() == 4)
+    var bots := get_tree().get_nodes_in_group("bots")
+    var guests := 0
+    var hats := 0
+    for b in bots:
+        if b.party_guest and b.display_name in PartyText.GUESTS:
+            guests += 1
+        if b.figure.hat != null and is_instance_valid(b.figure.hat):
+            hats += 1
+    _check("party: 5 guests with party names (%d) and hats (%d)" % [guests, hats], guests == 5 and hats == 5)
+    for i in 30:
+        await get_tree().physics_frame
+    var hat_ok := player.figure.hat != null and is_instance_valid(player.figure.hat)
+    var hat_dy := player.figure.hat.global_position.y - player.global_position.y if hat_ok else -1.0
+    _check("party: the player's hat sits on the head (%.2f m up)" % hat_dy, hat_ok and hat_dy > 1.3 and hat_dy < 2.2)
+    _check("party: status line is the checklist", party.status_line().begins_with("PARTY   candles 0/12"))
+
+    # a guest shot: no damage, a hop and a cheer
+    var guest := bots[0] as Bot
+    var vy0 := guest.velocity.y
+    var r := guest.take_damage(50.0, player, guest.center(), Vector3.ZERO, false)
+    _check("party: shooting a guest never hurts (hp %.0f), it hops (vy %.1f -> %.1f)" % [guest.hp, vy0, guest.velocity.y],
+        r.applied and not r.killed and guest.hp == 100.0 and guest.velocity.y >= Character.PARTY_HOP - 0.01)
+
+    # candle: on_shot blows it out
+    var c0 := party.candles[0]
+    c0.on_shot(player, c0.flame_position(), Vector3.FORWARD, null)
+    _check("party: a shot candle goes out (candles %d/12)" % party.counts().candles, not c0.lit and party.counts().candles == 1)
+    # balloon: a real rifle shot through the shootable hook
+    var b0 := party.balloons[0]
+    player.velocity = Vector3.ZERO
+    player.global_position = b0.global_position + Vector3(0, -b0.height, 6.0)
+    for i in 20:
+        await get_tree().physics_frame
+    player.arsenal.select(2)
+    await _wait_swap(player)
+    await _aim_at(player, b0.global_position)
+    await _pull_trigger(player)
+    _check("party: a rifle shot pops a balloon (balloons %d/30)" % party.counts().balloons, b0.is_popped and party.counts().balloons == 1)
+    # pinata: ten hits burst it into candy + capsules
+    var p := party.pinata
+    for i in 4:
+        p.on_shot(player, p.body_position(), Vector3(1, 0, 0), null)
+    _check("party: pinata swings after hits (hits %d, tilt vel %.2f)" % [p.hits, p._vel.length()], p.hits == 4 and not p.is_burst and p._vel.length() > 0.5)
+    for i in 6:
+        p.on_shot(player, p.body_position(), Vector3(0, 0, 1), null)
+    await get_tree().physics_frame
+    var candy := 0
+    for node in room.get_children():
+        if node is RigidBody3D:
+            candy += 1
+    var caps := 0
+    for node in get_tree().get_nodes_in_group("capsules"):
+        if node.net_index >= PartyManager.PINATA_CAPSULE_BASE:
+            caps += 1
+    _check("party: 10 hits burst the pinata into %d candy cubes + %d capsules" % [candy, caps], p.is_burst and candy == PartyPinata.CANDY and caps == 4)
+    # gifts: every surprise comes out; the puppy follows
+    for g in party.gifts:
+        g.open_by(player, true)
+    await get_tree().physics_frame
+    var kinds_ok := true
+    for g in party.gifts:
+        if not g.is_open or g.surprise == null:
+            kinds_ok = false
+    _check("party: all five gifts open with a surprise (gifts %d/5)" % party.counts().gifts, kinds_ok and party.counts().gifts == 5)
+    var puppy := get_tree().get_first_node_in_group("puppies") as PartyPuppy
+    _check("party: the puppy gift spawns a puppy that belongs to the opener", puppy != null and puppy.owner_character == player)
+    player.global_position = Vector3(4, 0.3, 14)
+    for i in 240:
+        await get_tree().physics_frame
+    var pd := puppy.global_position.distance_to(player.global_position) if puppy != null else 99.0
+    _check("party: the puppy runs after her (travelled %.1f m, now %.1f m away)" % [puppy.travelled if puppy else 0.0, pd],
+        puppy != null and puppy.travelled > 3.0 and pd < 5.0)
+
+    # zones: bouncy castle super jump, moon low gravity
+    player.velocity = Vector3.ZERO
+    player.global_position = Vector3(17, 0.85, -17)
+    for i in 30:
+        await get_tree().physics_frame
+    _check("party: bouncy castle = super jump (x%.1f, bounce %s, standing %s)" % [player.zone_jump_mult, player.zone_bounce, player.is_on_floor()],
+        player.zone_jump_mult == 2.0 and player.zone_bounce and player.is_on_floor())
+    player.jump_pressed = true
+    await get_tree().physics_frame
+    await get_tree().physics_frame
+    _check("party: castle jump launches at 2x (vy %.1f)" % player.velocity.y, player.velocity.y > 17.0)
+    var bounced := false
+    for i in 150:
+        await get_tree().physics_frame
+        if player.is_on_floor():
+            await get_tree().physics_frame
+            await get_tree().physics_frame
+            bounced = player.velocity.y > 4.0
+            break
+    _check("party: landing in the castle bounces you back up (vy %.1f)" % player.velocity.y, bounced)
+    player.velocity = Vector3.ZERO
+    player.global_position = Vector3(-17, 0.8, -17)
+    for i in 8:
+        await get_tree().physics_frame
+    _check("party: moon corner = low gravity (x%.2f)" % player.zone_gravity_mult, is_equal_approx(player.zone_gravity_mult, 0.3) and not player.zone_bounce)
+    player.global_position = Vector3(0, 0.3, 20)
+    for i in 8:
+        await get_tree().physics_frame
+    _check("party: leaving the zones restores normal movement", player.zone_gravity_mult == 1.0 and player.zone_jump_mult == 1.0 and player.zone_push == Vector3.ZERO)
+
+    # network mirror: remote events + the late-joiner state list
+    party.apply_remote("candle", 3, 0, null, Vector3.ZERO)
+    party.apply_remote("balloon", 5, 1, null, Vector3.ZERO)
+    var states := party.remote_states()
+    var has_c3 := false
+    var has_b5 := false
+    for s in states:
+        if s[0] == "candle" and s[1] == 3:
+            has_c3 = true
+        if s[0] == "balloon" and s[1] == 5:
+            has_b5 = true
+    _check("party: remote events apply and the late-joiner list carries them (%d entries)" % states.size(),
+        not party.candles[3].lit and party.balloons[5].is_popped and has_c3 and has_b5 and states.size() >= 9)
+
+    # finale: finish the checklist -> fireworks, cheering, then everything resets
+    party.finale_seconds = 2.5
+    var started := [0]
+    var resets := [0]
+    party.finale_started.connect(func() -> void: started[0] += 1)
+    party.reset_done.connect(func() -> void: resets[0] += 1)
+    for c in party.candles:
+        if c.lit:
+            c.on_shot(player, c.flame_position(), Vector3.FORWARD, null)
+    for b in party.balloons:
+        if not b.is_popped:
+            b.on_shot(player, b.global_position, Vector3.FORWARD, null)
+    _check("party: completing the checklist starts the finale (done=%s)" % party.counts().done, party.counts().done and started[0] == 1 and party.finale_active)
+    var cheering := 0
+    for b in bots:
+        if b._dance_left > 1.0:
+            cheering += 1
+    _check("party: every guest cheers in the finale (%d/5)" % cheering, cheering == 5)
+    _check("party: the camera orbits the cake", player.controller.cinematic_active())
+    for i in 30:
+        await get_tree().physics_frame
+    _check("party: fireworks and confetti fly (%d fireworks, %d bursts)" % [party.fx.stats.fireworks, party.fx.stats.confetti],
+        party.fx.stats.fireworks >= 1 and party.fx.stats.confetti >= 3)
+    for i in 200:
+        await get_tree().physics_frame
+    var after := party.counts()
+    _check("party: the party resets itself for another round (candles %d, balloons %d, pinata %s, gifts %d)" % [after.candles, after.balloons, after.pinata, after.gifts],
+        resets[0] == 1 and not party.finale_active and after.candles == 0 and after.balloons == 0 and not after.pinata and after.gifts == 0
+        and get_tree().get_nodes_in_group("puppies").is_empty())
     room.queue_free()
     await get_tree().process_frame
 

@@ -62,6 +62,7 @@ so M4 multiplayer is a transport change, not a rewrite.
 - **M3g objectives + content (v0.5, 2026-09-02)** - Capture the Battery, item capsules, bot difficulty, Diner map, map select, camera/gun visibility.
 - **M3h swap feel + wave-step (v0.6, 2026-09-02)** - per-weapon draw times, buffered fire/alt/jump/select during draws, lower/raise arc + camera dip, frame-accurate wave-step test.
 - **M4 online (v0.6, 2026-09-02)** - ENet host/join + lobby, dedicated `--server`, server-authoritative Characters with client prediction + reconciliation, snapshot interpolation, reliable events, loopback smoke test, `tools/NET.md`.
+- **M5 Lalu's Birthday (v0.7, 2026-09-02)** - a present for Hila: party room map `lalu_party` (cake + 12 candles, 30 balloons, pinata, 5 gifts with surprises, cannons, disco floor, bouncy castle, moon corner, slide, banner, Hebrew wall text), mode `party` (no PvP, dancing guests in hats, checklist, finale + reset), shootable world props (`shootable` group, layer 4), `PartyZone` movement volumes, Net `_ev_party` mirror, party SFX + chiptune theme, title-screen button + confetti.
 - **Later** â€” parts customization, capsule shop, Elimination, Capture the Battery, Zombie, more maps.
 
 ## Verify ritual
